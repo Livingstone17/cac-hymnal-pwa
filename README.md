@@ -1,5 +1,7 @@
 
-  # CAC Hymnal PWA
+  # CAC Multi-language Hymnal PWA
+
+
 
   ## Running the code
 
