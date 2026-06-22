@@ -41,7 +41,7 @@ import {
   Loader2,
 } from "lucide-react";
 import logo from "../assets/logo.png";
-
+import { normalizeMeter } from "./helpers/hymnMeterHelper";
 // ── API + Storage Config ──────────────────────────────────────────────────────
 
 const API_BASE = "https://worker.hymnize.com/api";
@@ -1686,7 +1686,9 @@ export default function App() {
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between px-5 pt-1 pb-3 flex-shrink-0">
             <div className="flex items-center gap-2.5">
-              <HymnBookLogo size={30} />
+              {/* <HymnBookLogo size={30} /> */}
+              <img src={logo} alt="" style={{ width: 32, height: 28 }} />
+
               <div>
                 <p className="text-[10px] text-muted-foreground leading-none font-medium uppercase tracking-wider">
                   CAC Gospel Hymnal
@@ -1977,7 +1979,16 @@ export default function App() {
 
   const renderHymnDetail = () => {
     const headingHymn = selectedHymn ?? pendingHymn;
+    const currentMeterKey = normalizeMeter(selectedHymn?.meter);
 
+    const sameMeterHymns =
+      selectedHymn && currentMeterKey
+        ? hymns.filter(
+          (hymn) =>
+            hymn.id !== selectedHymn.id &&
+            normalizeMeter(hymn.meter) === currentMeterKey
+        )
+        : [];
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-3 px-4 pt-1 pb-3 border-b border-border flex-shrink-0">
@@ -2213,7 +2224,41 @@ export default function App() {
                             </span>
                           </div>
                         ))}
+                        {selectedHymn.meter && sameMeterHymns.length > 0 && (
+                          <div className="pt-3 mt-3 border-t border-border">
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                              <span className="text-xs text-muted-foreground">
+                                {tr("Other Hymns with same Meter as this", "Àwọn Orin miran toni Mítà Kanna pelu orin yi")}
+                              </span>
 
+                              <span className="text-xs font-semibold text-foreground">
+                                {sameMeterHymns.length} {tr("found", "rí")}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              {sameMeterHymns.slice(0, 12).map((hymn) => (
+                                <button
+                                  key={hymn.id}
+                                  onClick={() => void openHymn(hymn, prevScreen)}
+                                  className="max-w-full px-2.5 py-1.5 rounded-full bg-muted border border-border text-[11px] font-semibold text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
+                                  title={hymnTitle(hymn)}
+                                >
+                                  #{displayHymnNumber(hymn)} ·{" "}
+                                  <span className="inline-block max-w-[130px] truncate align-bottom">
+                                    {hymnTitle(hymn)}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+
+                            {sameMeterHymns.length > 12 && (
+                              <p className="text-[11px] text-muted-foreground mt-2">
+                                +{sameMeterHymns.length - 12} {tr("more hymns with this meter", "miiran pẹ̀lú mítà yìí")}
+                              </p>
+                            )}
+                          </div>
+                        )}
                         <button
                           onClick={handleShareHymn}
                           className="w-full mt-2 flex items-center justify-center gap-2 bg-muted py-2.5 rounded-xl text-sm font-semibold text-foreground"
