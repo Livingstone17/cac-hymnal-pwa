@@ -2171,6 +2171,8 @@ export default function App() {
   // ── Modal: Devotional Reminder ──────────────────────────────────────────────
 
   const DevotionalModal = () => {
+    const greeting = getTimeGreeting();
+
     if (!hymnOfTheDay) return null;
 
     const line =
@@ -2212,7 +2214,9 @@ export default function App() {
                   </p>
 
                   <h3 className="text-lg font-bold text-foreground">
-                    {tr("Good Morning!", "Ẹ káàárọ̀!")}
+                    {/* {tr("Good Morning!", "Ẹ káàárọ̀!")} */}
+                    {tr(greeting.en, greeting.yo)}
+
                   </h3>
 
                 </div>
