@@ -8,9 +8,7 @@ import {
   type ElementType,
   type ReactNode,
 } from "react";
-
 import { motion, AnimatePresence } from "motion/react";
-
 import {
   Home,
   Search,
@@ -40,844 +38,74 @@ import {
   RefreshCw,
   Loader2,
 } from "lucide-react";
+import type {
+  CategoryDef,
+  Hymn,
+  HymnSummary,
+  Language,
+  Screen,
+  SettingsLanguage,
+  Tab,
+} from "../types/hymnal";
+
+import {
+  LS_DARK_MODE,
+  LS_FAVORITES,
+  LS_FONT_SIZE,
+  LS_LANGUAGE,
+  LS_ONBOARDED,
+  LS_RECENTLY_VIEWED,
+  LS_RECENT_SEARCHES,
+  LS_REMINDER_ENABLED,
+  LS_REMINDER_TIME,
+  LS_SETTINGS_LANG,
+  OFFLINE_READY_KEY,
+} from "../constants/hymnal";
+
+import {
+  detectBrowserLanguage,
+  loadLanguage,
+  loadLocal,
+  saveLocal,
+} from "../lib/localStorage";
+
+import {
+  cacheClear,
+  cacheGet,
+  cacheSet,
+} from "../lib/indexedDB";
+
+import {
+  displayHymnNumber,
+  getHymnCategoryName,
+  getHymnTitle,
+  getOtherHymnTitle,
+  normalizeMeter,
+} from "../lib/hymnUtils";
+
+import { buildCategoriesFromHymns } from "../lib/categoryUtils";
+
+import {
+  downloadAllHymns,
+  getCatalogCached,
+  getCatalogFresh,
+  getHymnCached,
+  refreshCatalogInBackground,
+  searchCachedLyrics,
+} from "../services/hymnizeApi";
+
+import HymnBookLogo from "../components/shared/HymnBookLogo";
+import Toggle from "../components/shared/Toggle";
+import SettingsSection from "../components/shared/SettingSection";
+import ResultGroup from "../components/shared/ResultGroup";
+import StatusBar from "../components/layout/Statusbar";
+import BottomNav from "../components/layout/BottomNav";
 import logo from "../assets/logo.png";
-import { normalizeMeter } from "./helpers/hymnMeterHelper";
-// ── API + Storage Config ──────────────────────────────────────────────────────
+// import { normalizeMeter } from "./helpers/hymnMeterHelper";
+import AllHymnsScreen from "../screens/AllHymnsScreen";
 
-const API_BASE = "https://worker.hymnize.com/api";
-const DENOMINATION = "cac";
 
-const DB_NAME = "cac-gospel-hymnal-db";
-const DB_VERSION = 1;
-const STORE_NAME = "kv";
 
-const CACHE_PREFIX = `hymnize:${DENOMINATION}`;
-const CATALOG_CACHE_KEY = `${CACHE_PREFIX}:catalog:v1`;
-const OFFLINE_READY_KEY = `${CACHE_PREFIX}:offline-ready:v1`;
-const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
-
-const LS_PREFIX = "cac-hymnal:";
-const LS_ONBOARDED = `${LS_PREFIX}onboarded`;
-const LS_LANGUAGE = `${LS_PREFIX}language`;
-const LS_SETTINGS_LANG = `${LS_PREFIX}settings-language`;
-const LS_FAVORITES = `${LS_PREFIX}favorites`;
-const LS_RECENTLY_VIEWED = `${LS_PREFIX}recently-viewed`;
-const LS_RECENT_SEARCHES = `${LS_PREFIX}recent-searches`;
-const LS_DARK_MODE = `${LS_PREFIX}dark-mode`;
-const LS_FONT_SIZE = `${LS_PREFIX}font-size`;
-const LS_REMINDER_ENABLED = `${LS_PREFIX}reminder-enabled`;
-const LS_REMINDER_TIME = `${LS_PREFIX}reminder-time`;
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type Screen =
-  | "onboarding"
-  | "home"
-  | "all-hymns"
-  | "search"
-  | "categories"
-  | "category-detail"
-  | "favorites"
-  | "settings"
-  | "hymn-detail";
-
-type Language = "en" | "yo";
-type ApiLanguage = "english" | "yoruba";
-type HymnType = "regular" | "various";
-
-type Tab = "home" | "search" | "categories" | "favorites" | "settings";
-
-interface Verse {
-  number: number;
-  en: string[];
-  yo: string[];
-}
-
-interface HymnSummary {
-  id: number;
-  number: number;
-  hymnType: HymnType;
-
-  titleEn: string;
-  titleYo: string;
-
-  category: string;
-  categoryEn: string;
-  categoryYo: string;
-
-  meter?: string | null;
-  scripture?: string | null;
-  author?: string;
-}
-
-interface Hymn extends HymnSummary {
-  verses: Verse[];
-  chorus?: {
-    en: string[];
-    yo: string[];
-  };
-}
-
-interface CategoryDef {
-  id: string;
-  nameEn: string;
-  nameYo: string;
-  Icon: ElementType;
-  hymnCount: number;
-  color: string;
-  bg: string;
-}
-
-interface ApiIndexItem {
-  category: string;
-  hymn_type: HymnType;
-  meter: string | null;
-  original_id: number;
-  title: string;
-}
-
-interface ApiIndexResponse {
-  denomination: string;
-  language: ApiLanguage;
-  indexes: ApiIndexItem[];
-}
-
-interface ApiLine {
-  dynamic: string | null;
-  text: string;
-}
-
-interface ApiStanza {
-  no: number;
-  lines: ApiLine[];
-}
-
-interface ApiChorus {
-  lines: ApiLine[];
-}
-
-interface ApiHymnData {
-  category: string;
-  chorus: ApiChorus | null;
-  denomination: string;
-  hymn_type: HymnType;
-  id: number;
-  language: ApiLanguage;
-  meter: string | null;
-  original_id: number;
-  scripture: string | null;
-  stanzas: ApiStanza[];
-}
-
-interface ApiHymnResponse {
-  hymn?: ApiHymnData;
-}
-
-interface CachedValue<T> {
-  savedAt: number;
-  data: T;
-}
-
-// ── LocalStorage Helpers ──────────────────────────────────────────────────────
-
-function loadLocal<T>(key: string, fallback: T): T {
-  try {
-    if (typeof window === "undefined") return fallback;
-
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return fallback;
-
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function saveLocal<T>(key: string, value: T) {
-  try {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Ignore storage errors.
-  }
-}
-
-function loadLanguage(): Language {
-  return loadLocal<string>(LS_LANGUAGE, "en") === "yo" ? "yo" : "en";
-}
-
-function detectBrowserLanguage(): Language {
-  if (typeof navigator === "undefined") return "en";
-  return navigator.language.toLowerCase().startsWith("yo") ? "yo" : "en";
-}
-
-// ── IndexedDB Helpers ─────────────────────────────────────────────────────────
-
-let dbPromise: Promise<IDBDatabase> | null = null;
-
-function openDb(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise;
-
-  dbPromise = new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      reject(new Error("IndexedDB is not available in this browser."));
-      return;
-    }
-
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-
-  return dbPromise;
-}
-
-function idbGet<T>(key: string): Promise<T | undefined> {
-  return openDb().then(
-    (db) =>
-      new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, "readonly");
-        const store = tx.objectStore(STORE_NAME);
-        const request = store.get(key);
-
-        request.onsuccess = () => resolve(request.result as T | undefined);
-        request.onerror = () => reject(request.error);
-      })
-  );
-}
-
-function idbSet<T>(key: string, value: T): Promise<void> {
-  return openDb().then(
-    (db) =>
-      new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, "readwrite");
-        const store = tx.objectStore(STORE_NAME);
-
-        store.put(value, key);
-
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
-      })
-  );
-}
-
-function idbClear(): Promise<void> {
-  return openDb().then(
-    (db) =>
-      new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, "readwrite");
-        const store = tx.objectStore(STORE_NAME);
-
-        store.clear();
-
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
-      })
-  );
-}
-
-async function cacheGet<T>(key: string): Promise<T | undefined> {
-  try {
-    return await idbGet<T>(key);
-  } catch {
-    return undefined;
-  }
-}
-
-async function cacheSet<T>(key: string, value: T): Promise<void> {
-  try {
-    await idbSet(key, value);
-  } catch {
-    // Ignore cache write errors.
-  }
-}
-
-async function cacheClear(): Promise<void> {
-  try {
-    await idbClear();
-  } catch {
-    // Ignore cache clear errors.
-  }
-}
-
-// ── Hymnize API Helpers ───────────────────────────────────────────────────────
-
-function makeHymnId(type: HymnType, number: number) {
-  /**
-   * API has:
-   * - regular hymn 1
-   * - various hymn 1
-   *
-   * So number alone is not unique.
-   */
-  return type === "regular" ? number : 100000 + number;
-}
-
-function makeHymnKey(type: HymnType, number: number) {
-  return `${type}:${number}`;
-}
-
-function hymnCacheKey(type: HymnType, number: number) {
-  return `${CACHE_PREFIX}:hymn:v1:${type}:${number}`;
-}
-
-function displayHymnNumber(hymn: Pick<HymnSummary, "hymnType" | "number">) {
-  const number = hymn.number.toString().padStart(3, "0");
-  return hymn.hymnType === "various" ? `V${number}` : number;
-}
-
-function slugify(value: string) {
-  return (
-    value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/&/g, "and")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "uncategorized"
-  );
-}
-
-async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-    },
-    signal,
-  });
-
-  if (!res.ok) {
-    throw new Error(`Hymnize API error: ${res.status} ${res.statusText}`);
-  }
-
-  return res.json() as Promise<T>;
-}
-
-async function fetchIndexes(language: ApiLanguage, signal?: AbortSignal) {
-  const data = await apiGet<ApiIndexResponse>(
-    `/hymns/${DENOMINATION}/${language}/indexes`,
-    signal
-  );
-
-  return data.indexes ?? [];
-}
-
-async function fetchCatalog(signal?: AbortSignal): Promise<HymnSummary[]> {
-  const [englishIndexes, yorubaIndexes] = await Promise.all([
-    fetchIndexes("english", signal),
-    fetchIndexes("yoruba", signal),
-  ]);
-
-  const englishMap = new Map(
-    englishIndexes.map((item) => [
-      makeHymnKey(item.hymn_type, item.original_id),
-      item,
-    ])
-  );
-
-  const yorubaMap = new Map(
-    yorubaIndexes.map((item) => [
-      makeHymnKey(item.hymn_type, item.original_id),
-      item,
-    ])
-  );
-
-  const keys = Array.from(new Set([...englishMap.keys(), ...yorubaMap.keys()]));
-
-  return keys
-    .map((key) => {
-      const english = englishMap.get(key);
-      const yoruba = yorubaMap.get(key);
-      const source = english ?? yoruba;
-
-      if (!source) {
-        throw new Error(`Invalid hymn index key: ${key}`);
-      }
-
-      const hymnType = source.hymn_type;
-      const number = source.original_id;
-
-      const categoryEn =
-        english?.category ?? yoruba?.category ?? "Uncategorized";
-
-      const categoryYo =
-        yoruba?.category ?? english?.category ?? "Uncategorized";
-
-      return {
-        id: makeHymnId(hymnType, number),
-        number,
-        hymnType,
-
-        titleEn: english?.title ?? yoruba?.title ?? `Hymn ${number}`,
-        titleYo: yoruba?.title ?? english?.title ?? `Hymn ${number}`,
-
-        category: slugify(categoryEn),
-        categoryEn,
-        categoryYo,
-
-        meter: english?.meter ?? yoruba?.meter ?? null,
-      };
-    })
-    .sort((a, b) => {
-      const typeOrder: Record<HymnType, number> = {
-        regular: 0,
-        various: 1,
-      };
-
-      if (a.hymnType !== b.hymnType) {
-        return typeOrder[a.hymnType] - typeOrder[b.hymnType];
-      }
-
-      return a.number - b.number;
-    });
-}
-
-async function saveCatalog(data: HymnSummary[]) {
-  await cacheSet<CachedValue<HymnSummary[]>>(CATALOG_CACHE_KEY, {
-    savedAt: Date.now(),
-    data,
-  });
-}
-
-async function getCatalogFresh(): Promise<HymnSummary[]> {
-  const fresh = await fetchCatalog();
-  await saveCatalog(fresh);
-  return fresh;
-}
-
-async function getCatalogCached(): Promise<HymnSummary[]> {
-  const cached = await cacheGet<CachedValue<HymnSummary[]>>(CATALOG_CACHE_KEY);
-
-  const cacheIsFresh = cached && Date.now() - cached.savedAt < CATALOG_TTL_MS;
-
-  if (cacheIsFresh) {
-    return cached.data;
-  }
-
-  try {
-    return await getCatalogFresh();
-  } catch (error) {
-    if (cached) return cached.data;
-    throw error;
-  }
-}
-
-async function refreshCatalogInBackground(
-  onFreshData?: (data: HymnSummary[]) => void
-) {
-  try {
-    const fresh = await getCatalogFresh();
-    onFreshData?.(fresh);
-  } catch {
-    // Ignore background refresh errors.
-  }
-}
-
-async function fetchApiHymn(
-  language: ApiLanguage,
-  type: HymnType,
-  hymnNumber: number,
-  signal?: AbortSignal
-) {
-  const data = await apiGet<ApiHymnResponse>(
-    `/hymns/${DENOMINATION}/${language}/${type}/hymn/${hymnNumber}`,
-    signal
-  );
-
-  if (!data.hymn) {
-    throw new Error(`Hymn not found: ${language} ${type} ${hymnNumber}`);
-  }
-
-  return data.hymn;
-}
-
-function extractLines(lines?: ApiLine[]) {
-  return lines?.map((line) => line.text).filter(Boolean) ?? [];
-}
-
-function mergeApiHymns(
-  summary: HymnSummary,
-  english?: ApiHymnData,
-  yoruba?: ApiHymnData
-): Hymn {
-  const englishStanzas = new Map(
-    english?.stanzas.map((stanza) => [stanza.no, stanza]) ?? []
-  );
-
-  const yorubaStanzas = new Map(
-    yoruba?.stanzas.map((stanza) => [stanza.no, stanza]) ?? []
-  );
-
-  const stanzaNumbers = Array.from(
-    new Set([...englishStanzas.keys(), ...yorubaStanzas.keys()])
-  ).sort((a, b) => a - b);
-
-  const verses: Verse[] = stanzaNumbers.map((number) => ({
-    number,
-    en: extractLines(englishStanzas.get(number)?.lines),
-    yo: extractLines(yorubaStanzas.get(number)?.lines),
-  }));
-
-  const chorusEn = extractLines(english?.chorus?.lines);
-  const chorusYo = extractLines(yoruba?.chorus?.lines);
-
-  return {
-    ...summary,
-    categoryEn: english?.category ?? summary.categoryEn,
-    categoryYo: yoruba?.category ?? summary.categoryYo,
-    meter: english?.meter ?? yoruba?.meter ?? summary.meter,
-    scripture: english?.scripture ?? yoruba?.scripture ?? summary.scripture,
-    verses,
-    chorus:
-      chorusEn.length > 0 || chorusYo.length > 0
-        ? {
-          en: chorusEn,
-          yo: chorusYo,
-        }
-        : undefined,
-  };
-}
-
-async function getHymnCached(
-  summary: HymnSummary,
-  options?: { forceRefresh?: boolean }
-): Promise<Hymn> {
-  const key = hymnCacheKey(summary.hymnType, summary.number);
-  const cached = await cacheGet<CachedValue<Hymn>>(key);
-
-  if (cached && !options?.forceRefresh) {
-    return cached.data;
-  }
-
-  try {
-    const [englishResult, yorubaResult] = await Promise.allSettled([
-      fetchApiHymn("english", summary.hymnType, summary.number),
-      fetchApiHymn("yoruba", summary.hymnType, summary.number),
-    ]);
-
-    const english =
-      englishResult.status === "fulfilled" ? englishResult.value : undefined;
-
-    const yoruba =
-      yorubaResult.status === "fulfilled" ? yorubaResult.value : undefined;
-
-    if (!english && !yoruba) {
-      throw new Error("Could not load hymn in English or Yoruba.");
-    }
-
-    const merged = mergeApiHymns(summary, english, yoruba);
-
-    await cacheSet<CachedValue<Hymn>>(key, {
-      savedAt: Date.now(),
-      data: merged,
-    });
-
-    return merged;
-  } catch (error) {
-    if (cached) return cached.data;
-    throw error;
-  }
-}
-
-async function downloadAllHymns(
-  catalog: HymnSummary[],
-  onProgress?: (done: number, total: number, hymn: HymnSummary) => void
-): Promise<{ failed: number }> {
-  const total = catalog.length;
-  let done = 0;
-  let failed = 0;
-  let cursor = 0;
-
-  const concurrency = 3;
-
-  async function worker() {
-    while (true) {
-      const currentIndex = cursor;
-      cursor += 1;
-
-      if (currentIndex >= total) return;
-
-      const hymn = catalog[currentIndex];
-
-      try {
-        await getHymnCached(hymn, { forceRefresh: true });
-      } catch (error) {
-        failed += 1;
-        console.warn("Failed to cache hymn", hymn, error);
-      }
-
-      done += 1;
-      onProgress?.(done, total, hymn);
-    }
-  }
-
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
-
-  return { failed };
-}
-
-async function searchCachedLyrics(
-  catalog: HymnSummary[],
-  query: string,
-  limit = 40
-): Promise<HymnSummary[]> {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-
-  const results: HymnSummary[] = [];
-
-  for (const summary of catalog) {
-    const cached = await cacheGet<CachedValue<Hymn>>(
-      hymnCacheKey(summary.hymnType, summary.number)
-    );
-
-    const hymn = cached?.data;
-    if (!hymn) continue;
-
-    const lyricsText = [
-      ...hymn.verses.flatMap((verse) => [...verse.en, ...verse.yo]),
-      ...(hymn.chorus?.en ?? []),
-      ...(hymn.chorus?.yo ?? []),
-    ]
-      .join("\n")
-      .toLowerCase();
-
-    if (lyricsText.includes(q)) {
-      results.push(summary);
-
-      if (results.length >= limit) break;
-    }
-  }
-
-  return results;
-}
-
-// ── Category Builder ──────────────────────────────────────────────────────────
-
-const CATEGORY_STYLES = [
-  { Icon: Star, color: "#B8860B", bg: "#FDF3DC" },
-  { Icon: Music, color: "#1A237E", bg: "#E8EAFB" },
-  { Icon: Heart, color: "#2E7D32", bg: "#E8F5E9" },
-  { Icon: BookOpen, color: "#6A1B9A", bg: "#F3E5F5" },
-  { Icon: ChevronRight, color: "#C62828", bg: "#FFEBEE" },
-  { Icon: Sun, color: "#E65100", bg: "#FBE9E7" },
-  { Icon: Moon, color: "#37474F", bg: "#ECEFF1" },
-];
-
-function buildCategoriesFromHymns(hymns: HymnSummary[]): CategoryDef[] {
-  const grouped = new Map<string, HymnSummary[]>();
-
-  hymns.forEach((hymn) => {
-    const current = grouped.get(hymn.category) ?? [];
-    current.push(hymn);
-    grouped.set(hymn.category, current);
-  });
-
-  return Array.from(grouped.entries())
-    .map(([id, items], index) => {
-      const first = items[0];
-      const style = CATEGORY_STYLES[index % CATEGORY_STYLES.length];
-
-      return {
-        id,
-        nameEn: first.categoryEn,
-        nameYo: first.categoryYo,
-        hymnCount: items.length,
-        Icon: style.Icon,
-        color: style.color,
-        bg: style.bg,
-      };
-    })
-    .sort((a, b) => a.nameEn.localeCompare(b.nameEn));
-}
-
-// ── Shared UI Components ──────────────────────────────────────────────────────
-
-function HymnBookLogo({
-  size = 40,
-  light = false,
-}: {
-  size?: number;
-  light?: boolean;
-}) {
-  const stroke = light ? "white" : "#1A237E";
-
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
-      <path
-        d="M24 10 C18 10 7 12 5 15 L5 41 C7 38 18 37 24 37"
-        stroke={stroke}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M24 10 C30 10 41 12 43 15 L43 41 C41 38 30 37 24 37"
-        stroke={stroke}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <line
-        x1="24"
-        y1="10"
-        x2="24"
-        y2="37"
-        stroke={stroke}
-        strokeWidth="2.5"
-        strokeLinecap="round"
-      />
-      <line
-        x1="34.5"
-        y1="17"
-        x2="34.5"
-        y2="33"
-        stroke="#D4A017"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-      />
-      <line
-        x1="28"
-        y1="23"
-        x2="41"
-        y2="23"
-        stroke="#D4A017"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function Toggle({
-  on,
-  onToggle,
-}: {
-  on: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      className={`w-12 h-6 rounded-full transition-colors relative flex-shrink-0 ${on ? "bg-primary" : "bg-muted"
-        }`}
-    >
-      <div
-        className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all duration-200 ${on ? "left-7" : "left-1"
-          }`}
-      />
-    </button>
-  );
-}
-
-function SettingsSection({
-  title,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  icon: ElementType;
-  children: ReactNode;
-}) {
-  return (
-    <div className="bg-card border border-border rounded-2xl overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/40">
-        <Icon className="w-3.5 h-3.5 text-primary" />
-        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-          {title}
-        </span>
-      </div>
-
-      <div className="px-4 py-3">{children}</div>
-    </div>
-  );
-}
-
-function ResultGroup({
-  title,
-  icon: Icon,
-  hymns,
-  query,
-  language,
-  onOpen,
-}: {
-  title: string;
-  icon: ElementType;
-  hymns: HymnSummary[];
-  query: string;
-  language: Language;
-  onOpen: (h: HymnSummary) => void;
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className="w-3 h-3 text-muted-foreground" />
-        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-          {title}
-        </span>
-      </div>
-
-      <div className="bg-card border border-border rounded-2xl overflow-hidden divide-y divide-border">
-        {hymns.slice(0, 8).map((hymn) => {
-          const matchLine =
-            "verses" in hymn
-              ? (hymn as Hymn).verses
-                .flatMap((v) => [...v.en, ...v.yo])
-                .find((l) =>
-                  l.toLowerCase().includes(query.toLowerCase())
-                )
-              : null;
-
-          return (
-            <button
-              key={hymn.id}
-              onClick={() => onOpen(hymn)}
-              className="w-full p-3 hover:bg-muted/50 transition-colors text-left"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-[#D4A017] font-black text-sm w-10 flex-shrink-0">
-                  {displayHymnNumber(hymn)}
-                </span>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline gap-1.5 flex-wrap">
-                    <span className="text-foreground text-sm font-semibold">
-                      {language === "en" ? hymn.titleEn : hymn.titleYo}
-                    </span>
-
-                    <span className="text-muted-foreground text-xs">
-                      · {language === "en" ? hymn.titleYo : hymn.titleEn}
-                    </span>
-                  </div>
-
-                  <p className="text-muted-foreground text-xs mt-0.5 truncate">
-                    {matchLine ??
-                      `${hymn.hymnType === "various" ? "Various · " : ""}${language === "en" ? hymn.categoryEn : hymn.categoryYo
-                      }`}
-                  </p>
-                </div>
-
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 
@@ -1204,13 +432,13 @@ export default function App() {
   const tr = (en: string, yo: string) => (language === "en" ? en : yo);
 
   const hymnTitle = (h: HymnSummary, lang?: Language) =>
-    (lang ?? language) === "en" ? h.titleEn : h.titleYo;
+    getHymnTitle(h, lang ?? language);
 
   const hymnOtherTitle = (h: HymnSummary, lang?: Language) =>
-    (lang ?? language) === "en" ? h.titleYo : h.titleEn;
+    getOtherHymnTitle(h, lang ?? language);
 
   const hymnCategoryName = (h: HymnSummary) =>
-    language === "en" ? h.categoryEn : h.categoryYo;
+    getHymnCategoryName(h, language);
 
   const openHymn = async (hymn: HymnSummary, from?: Screen) => {
     const requestId = openRequestId.current + 1;
@@ -1422,88 +650,6 @@ export default function App() {
     }
   }, [screen, hymns.length, reminderEnabled]);
 
-  // ── Status Bar ──────────────────────────────────────────────────────────────
-
-  const StatusBar = () => (
-    <div className="flex items-center justify-between px-6 pt-3 pb-1 flex-shrink-0">
-      <span className="text-xs font-semibold text-foreground">9:41</span>
-
-      <div className="flex items-center gap-1 text-foreground">
-        {isOnline ? (
-          <Wifi className="w-3.5 h-3.5" />
-        ) : (
-          <WifiOff className="w-3.5 h-3.5 text-red-500" />
-        )}
-
-        <svg width="22" height="11" viewBox="0 0 22 11" fill="currentColor">
-          <rect
-            x="0"
-            y="1"
-            width="18"
-            height="9"
-            rx="2"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            fill="none"
-          />
-          <rect x="18.8" y="3.5" width="2.2" height="4" rx="1" opacity="0.5" />
-          <rect x="1.5" y="2.5" width="13" height="6" rx="1.2" />
-        </svg>
-      </div>
-    </div>
-  );
-
-  // ── Bottom Nav ──────────────────────────────────────────────────────────────
-
-  const BottomNav = () => {
-    const tabs: { id: Tab; Icon: ElementType; en: string; yo: string }[] = [
-      { id: "home", Icon: Home, en: "Home", yo: "Ilé" },
-      { id: "search", Icon: Search, en: "Search", yo: "Ìwádìí" },
-      { id: "categories", Icon: Grid3X3, en: "Categories", yo: "Ẹ̀ka" },
-      { id: "favorites", Icon: Heart, en: "Favorites", yo: "Àyọ̀ Mi" },
-      { id: "settings", Icon: Settings, en: "Settings", yo: "Ìtòlẹ́sẹẹ̀" },
-    ];
-
-    return (
-      <div className="flex items-center justify-around px-1 py-2 border-t border-border bg-card flex-shrink-0">
-        {tabs.map(({ id, Icon, en, yo }) => {
-          const active = activeTab === id;
-
-          return (
-            <button
-              key={id}
-              onClick={() => navigateTab(id)}
-              className="flex flex-col items-center gap-0.5 px-2 py-1"
-            >
-              <div className="relative">
-                <Icon
-                  className={`w-[22px] h-[22px] transition-colors ${active ? "text-primary" : "text-muted-foreground"
-                    }`}
-                />
-
-                {id === "favorites" && favorites.length > 0 && (
-                  <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 bg-[#D4A017] rounded-full text-[8px] flex items-center justify-center text-white font-bold leading-none">
-                    {favorites.length}
-                  </span>
-                )}
-              </div>
-
-              <span
-                className={`text-[9px] font-semibold leading-none transition-colors ${active ? "text-primary" : "text-muted-foreground"
-                  }`}
-              >
-                {language === "en" ? en : yo}
-              </span>
-
-              {active && (
-                <div className="w-1 h-1 rounded-full bg-[#D4A017] mt-0.5" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-    );
-  };
 
   // ── Screen: Onboarding ──────────────────────────────────────────────────────
 
@@ -2477,84 +1623,16 @@ export default function App() {
   // ── Screen: All Hymns ─────────────────────────────────────────────────────────
 
   const renderAllHymns = () => (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 pt-1 pb-3 border-b border-border flex-shrink-0">
-        <button
-          onClick={() => {
-            setScreen("home");
-            setActiveTab("home");
-          }}
-          className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0"
-        >
-          <ChevronLeft className="w-4 h-4 text-foreground" />
-        </button>
-
-        <div className="flex-1 min-w-0">
-          <h2 className="text-base font-bold text-foreground">
-            {tr("All Hymns", "Gbogbo Orin")}
-          </h2>
-
-          <p className="text-xs text-muted-foreground">
-            {hymns.length} {tr("hymns listed serially", "orin ni títẹ̀lé")}
-          </p>
-        </div>
-
-        <BookOpen className="w-5 h-5 text-primary" />
-      </div>
-
-      <div
-        className="flex-1 overflow-y-auto pb-4"
-        style={{ scrollbarWidth: "none" }}
-      >
-        {hymns.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-            <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" />
-            <p className="text-sm text-muted-foreground">
-              {tr("Loading hymns…", "Ń ṣí àwọn orin…")}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {hymns.map((hymn) => (
-              <button
-                key={hymn.id}
-                onClick={() => void openHymn(hymn, "all-hymns")}
-                className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-muted/40 transition-colors text-left"
-              >
-                <span
-                  className="font-black text-sm w-12 flex-shrink-0"
-                  style={{ color: "#D4A017" }}
-                >
-                  {displayHymnNumber(hymn)}
-                </span>
-
-                <div className="flex-1 min-w-0">
-                  <p className="text-foreground text-sm font-semibold truncate">
-                    {hymnTitle(hymn)}
-                  </p>
-
-                  <p className="text-muted-foreground text-[11px] truncate">
-                    {hymnOtherTitle(hymn)}
-                  </p>
-
-                  <p className="text-muted-foreground text-[10px] truncate mt-0.5">
-                    {hymnCategoryName(hymn)}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  {favorites.includes(hymn.id) && (
-                    <Heart className="w-3.5 h-3.5 text-red-400 fill-current" />
-                  )}
-
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+    <AllHymnsScreen
+      hymns={hymns}
+      favorites={favorites}
+      language={language}
+      onBack={() => {
+        setScreen("home");
+        setActiveTab("home");
+      }}
+      onOpenHymn={(hymn) => void openHymn(hymn, "all-hymns")}
+    />
   );
 
 
@@ -3234,7 +2312,8 @@ export default function App() {
         className="relative w-full max-w-[393px] h-screen max-h-[852px] bg-background overflow-hidden flex flex-col md:rounded-[44px] md:shadow-2xl"
         style={{ fontFamily: "'Inter', sans-serif" }}
       >
-        {screen !== "onboarding" && <StatusBar />}
+        {/* {screen !== "onboarding" && <StatusBar />} */}
+        {screen !== "onboarding" && <StatusBar isOnline={isOnline} />}
 
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
           <AnimatePresence mode="wait">
@@ -3262,7 +2341,15 @@ export default function App() {
           </AnimatePresence>
         </div>
 
-        {showBottomNav && <BottomNav />}
+        {/* {showBottomNav && <BottomNav />} */}
+        {showBottomNav && (
+          <BottomNav
+            activeTab={activeTab}
+            language={language}
+            favoritesCount={favorites.length}
+            onNavigate={navigateTab}
+          />
+        )}
 
         {screen !== "onboarding" && <DevotionalModal />}
       </div>
