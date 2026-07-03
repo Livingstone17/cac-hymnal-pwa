@@ -1223,8 +1223,11 @@ export default function App() {
 
                 <p className="text-muted-foreground text-xs mt-1.5 font-medium">
                   {hymnLang === "en"
-                    ? selectedHymn.categoryEn
-                    : selectedHymn.categoryYo}
+                    ? `Category: ${selectedHymn.categoryEn}`
+                    : `Isori: ${selectedHymn.categoryYo}`}
+                </p>
+                <p className="text-muted-foreground text-xs mt-1.5 font-medium">
+                  {selectedHymn.meter ? `Meter: ${selectedHymn.meter}` : "Hymn Meter unknown"}
                 </p>
               </div>
 
