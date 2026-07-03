@@ -112,6 +112,8 @@ import AllHymnsScreen from "../screens/AllHymnsScreen";
 export default function App() {
   const openRequestId = useRef(0);
   const devotionalShown = useRef(false);
+  const supportEmail = "peterson.omobolaji@gmail.com";
+  const churchName = "CAC ITEDO YIYANJU District";
 
   const [screen, setScreen] = useState<Screen>(() =>
     loadLocal<boolean>(LS_ONBOARDED, false) ? "home" : "onboarding"
@@ -2162,11 +2164,31 @@ export default function App() {
         </button>
 
         <p className="text-center text-[11px] text-muted-foreground">
-          Made with ♥ for CAC congregations worldwide
+          Built with Love for CAC congregations worldwide
+        </p>
+        <p className="text-center text-[11px] text-muted-foreground">
+          ©CAC ITEDO YIYANJU District. All rights reserved.
         </p>
         <p className="text-center text-[11px] text-muted-foreground pb-2">
-          ©Phos Technologies. All rights reserved.
+          Designed & Developed by Phos Technologies
         </p>
+        {/* PWA Feedback & Support Links */}
+        <div style={{ gap: "0.5rem", display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
+          <a
+            href={`mailto:${supportEmail}?subject=${encodeURIComponent(`${churchName} PWA App Support`)}`}
+            style={{ color: "#0066cc", textDecoration: "none", fontWeight: "600", fontSize: '12px' }}
+          >
+            Share Feedback
+          </a>
+          <span>•</span>
+          <a
+            href={`mailto:${supportEmail}?subject=${encodeURIComponent(`${churchName} PWA App Support`)}`}
+            style={{ color: "#CC5800", textDecoration: "none", fontWeight: "600", fontSize: '12px' }}
+          >
+            Report an Issue
+          </a>
+        </div>
+
       </div>
     </div>
   );
