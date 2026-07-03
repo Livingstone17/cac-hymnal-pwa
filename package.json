@@ -1,5 +1,5 @@
 {
-  "name": "@figma/my-make-file",
+  "name": "cac-hymnal-pwa",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -73,8 +73,8 @@
     "vite-plugin-pwa": "^1.3.0"
   },
   "peerDependencies": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "peerDependenciesMeta": {
     "react": {

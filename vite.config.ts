@@ -73,8 +73,8 @@ export default defineConfig(({ command }) => {
        * Use React plugin only for production build.
        * This avoids the dev React Refresh preamble error.
        */
-      ...(isBuild ? [react()] : []),
-
+      // ...(isBuild ? [react()] : []),
+      react(),
       /**
        * PWA only during build.
        */
@@ -86,9 +86,9 @@ export default defineConfig(({ command }) => {
               injectRegister: "auto",
 
               includeAssets: [
-                "favicon.ico",
-                "favicon.svg",
-                "robots.txt",
+                // "favicon.ico",
+                // "favicon.svg",
+                // "robots.txt",
                 "icons/icon-192.png",
                 "icons/icon-512.png",
                 "icons/maskable-192.png",
