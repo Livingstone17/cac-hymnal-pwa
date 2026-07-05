@@ -68,6 +68,7 @@ interface ApiHymnResponse {
   hymn?: ApiHymnData;
 }
 
+
 async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "GET",

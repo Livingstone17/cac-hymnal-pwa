@@ -1,3 +1,5 @@
+import React from "react";
+
 import { ChevronRight } from "lucide-react";
 import type { ElementType } from "react";
 

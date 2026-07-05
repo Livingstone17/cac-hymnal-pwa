@@ -1,3 +1,4 @@
+
 export default function HymnBookLogo({
     size = 40,
     light = false,

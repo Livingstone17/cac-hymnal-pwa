@@ -1,3 +1,5 @@
+import React from "react";
+
 import {
   useCallback,
   useEffect,
@@ -92,7 +94,7 @@ import {
   getHymnCached,
   refreshCatalogInBackground,
   searchCachedLyrics,
-} from "../services/hymnizeApi";
+} from "../services/hymnizeApiLayer";
 
 import HymnBookLogo from "../components/shared/HymnBookLogo";
 import Toggle from "../components/shared/Toggle";

@@ -20,9 +20,7 @@ const CATEGORY_STYLES = [
   { Icon: Moon, color: "#37474F", bg: "#ECEFF1" },
 ];
 
-export function buildCategoriesFromHymns(
-  hymns: HymnSummary[]
-): CategoryDef[] {
+export function buildCategoriesFromHymns(hymns: HymnSummary[]): CategoryDef[] {
   const grouped = new Map<string, HymnSummary[]>();
 
   hymns.forEach((hymn) => {

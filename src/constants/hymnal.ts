@@ -1,4 +1,6 @@
-export const API_BASE = "https://worker.hymnize.com/api";
+// export const API_BASE = "https://worker.hymnize.com/api";
+
+export const API_BASE = "/api";
 export const DENOMINATION = "cac";
 
 export const DB_NAME = "cac-gospel-hymnal-db";
