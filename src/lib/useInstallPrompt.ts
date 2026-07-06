@@ -56,14 +56,12 @@
 
 import { useState, useEffect } from "react";
 
-// Define the custom event type that the browser uses for PWA installation
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
 export function useInstallPrompt() {
-  // Explicitly type the state so TypeScript knows it can be our custom event
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [isIOS, setIsIOS] = useState(false);
@@ -86,16 +84,13 @@ export function useInstallPrompt() {
     const iosDevice = /iphone|ipad|ipod/.test(userAgent);
     setIsIOS(iosDevice);
 
-    const handleBeforeInstall = (e: BeforeInstallPromptEvent) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
+    // Listen for the custom event dispatched from main.tsx
+    const handlePwaReady = (e: Event) => {
+      const customEvent = e as CustomEvent<BeforeInstallPromptEvent>;
+      setDeferredPrompt(customEvent.detail);
     };
 
-    // Cast to EventListener to satisfy TypeScript's strict event listener types
-    window.addEventListener(
-      "beforeinstallprompt",
-      handleBeforeInstall as EventListener,
-    );
+    window.addEventListener("pwa-install-ready", handlePwaReady);
 
     const handleAppInstalled = () => {
       setDeferredPrompt(null);
@@ -106,10 +101,7 @@ export function useInstallPrompt() {
     window.addEventListener("appinstalled", handleAppInstalled);
 
     return () => {
-      window.removeEventListener(
-        "beforeinstallprompt",
-        handleBeforeInstall as EventListener,
-      );
+      window.removeEventListener("pwa-install-ready", handlePwaReady);
       window.removeEventListener("appinstalled", handleAppInstalled);
     };
   }, []);
