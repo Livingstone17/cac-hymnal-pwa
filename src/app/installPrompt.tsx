@@ -88,9 +88,7 @@ export default function InstallPrompt() {
   }
 
   return (
-    // <div className="fixed bottom-4 left-4 right-4 bg-white p-4 rounded-lg shadow-lg border border-gray-200 z-50 flex items-center justify-between">
-
-    <div className="flex flex-row z-50">
+    <div className="fixed bottom-4 left-4 right-4 bg-white p-4 rounded-lg shadow-lg border border-gray-200 z-50 flex items-center justify-between">
       <button
         onClick={dismissPrompt}
         className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 text-xl font-bold"
