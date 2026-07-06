@@ -83,10 +83,7 @@ interface ApiHymnData {
   chorus: ApiChorus | null;
 }
 
-const collections: Record<
-  ApiLanguage,
-  Record<HymnType, ApiHymnData[]>
-> = {
+const collections: Record<ApiLanguage, Record<HymnType, ApiHymnData[]>> = {
   english: {
     regular: [],
     various: [],
@@ -104,7 +101,7 @@ let collectionsPromise: Promise<void> | null = null;
 function normalizeCollectionHymn(
   hymn: ApiCollectionHymn,
   language: ApiLanguage,
-  hymnType: HymnType
+  hymnType: HymnType,
 ): ApiHymnData {
   return {
     id: hymn.id,
@@ -123,7 +120,6 @@ function normalizeCollectionHymn(
     chorus: hymn.chorus,
   };
 }
-
 
 async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -144,16 +140,14 @@ async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
 async function fetchCollection(
   language: ApiLanguage,
   hymnType: HymnType,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<ApiHymnData[]> {
   const hymns = await apiGet<ApiCollectionHymn[]>(
     `/collections/${DENOMINATION}%2F${language}%2F${hymnType}`,
-    signal
+    signal,
   );
 
-  return hymns.map((hymn) =>
-    normalizeCollectionHymn(hymn, language, hymnType)
-  );
+  return hymns.map((hymn) => normalizeCollectionHymn(hymn, language, hymnType));
 }
 
 async function loadCollections(signal?: AbortSignal): Promise<void> {
@@ -166,17 +160,13 @@ async function loadCollections(signal?: AbortSignal): Promise<void> {
   }
 
   collectionsPromise = (async () => {
-    const [
-      englishRegular,
-      englishVarious,
-      yorubaRegular,
-      yorubaVarious,
-    ] = await Promise.all([
-      fetchCollection("english", "regular", signal),
-      fetchCollection("english", "various", signal),
-      fetchCollection("yoruba", "regular", signal),
-      fetchCollection("yoruba", "various", signal),
-    ]);
+    const [englishRegular, englishVarious, yorubaRegular, yorubaVarious] =
+      await Promise.all([
+        fetchCollection("english", "regular", signal),
+        fetchCollection("english", "various", signal),
+        fetchCollection("yoruba", "regular", signal),
+        fetchCollection("yoruba", "various", signal),
+      ]);
 
     collections.english.regular = englishRegular;
     collections.english.various = englishVarious;
@@ -206,42 +196,31 @@ function getAllCollectionHymns(): ApiHymnData[] {
 function findCollectionHymn(
   language: ApiLanguage,
   hymnType: HymnType,
-  hymnNumber: number
+  hymnNumber: number,
 ): ApiHymnData | undefined {
   return collections[language][hymnType].find(
-    (hymn) => hymn.original_id === hymnNumber
+    (hymn) => hymn.original_id === hymnNumber,
   );
 }
 
 export async function fetchCatalog(
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<HymnSummary[]> {
   await loadCollections(signal);
 
   const englishMap = new Map(
     getAllCollectionHymns()
       .filter((hymn) => hymn.language === "english")
-      .map((hymn) => [
-        makeHymnKey(hymn.hymn_type, hymn.original_id),
-        hymn,
-      ])
+      .map((hymn) => [makeHymnKey(hymn.hymn_type, hymn.original_id), hymn]),
   );
 
   const yorubaMap = new Map(
     getAllCollectionHymns()
       .filter((hymn) => hymn.language === "yoruba")
-      .map((hymn) => [
-        makeHymnKey(hymn.hymn_type, hymn.original_id),
-        hymn,
-      ])
+      .map((hymn) => [makeHymnKey(hymn.hymn_type, hymn.original_id), hymn]),
   );
 
-  const keys = Array.from(
-    new Set([
-      ...englishMap.keys(),
-      ...yorubaMap.keys(),
-    ])
-  );
+  const keys = Array.from(new Set([...englishMap.keys(), ...yorubaMap.keys()]));
 
   return keys
     .map((key) => {
@@ -258,14 +237,10 @@ export async function fetchCatalog(
       const number = source.original_id;
 
       const categoryEn =
-        english?.category ??
-        yoruba?.category ??
-        "Uncategorized";
+        english?.category ?? yoruba?.category ?? "Uncategorized";
 
       const categoryYo =
-        yoruba?.category ??
-        english?.category ??
-        "Uncategorized";
+        yoruba?.category ?? english?.category ?? "Uncategorized";
 
       return {
         id: makeHymnId(hymnType, number),
@@ -274,15 +249,9 @@ export async function fetchCatalog(
 
         hymnType,
 
-        titleEn:
-          english?.title ??
-          yoruba?.title ??
-          `Hymn ${number}`,
+        titleEn: english?.title ?? yoruba?.title ?? `Hymn ${number}`,
 
-        titleYo:
-          yoruba?.title ??
-          english?.title ??
-          `Hymn ${number}`,
+        titleYo: yoruba?.title ?? english?.title ?? `Hymn ${number}`,
 
         category: slugify(categoryEn),
 
@@ -290,10 +259,7 @@ export async function fetchCatalog(
 
         categoryYo,
 
-        meter:
-          english?.meter ??
-          yoruba?.meter ??
-          null,
+        meter: english?.meter ?? yoruba?.meter ?? null,
       };
     })
     .sort((a, b) => {
@@ -303,10 +269,7 @@ export async function fetchCatalog(
       };
 
       if (a.hymnType !== b.hymnType) {
-        return (
-          typeOrder[a.hymnType] -
-          typeOrder[b.hymnType]
-        );
+        return typeOrder[a.hymnType] - typeOrder[b.hymnType];
       }
 
       return a.number - b.number;
@@ -329,9 +292,7 @@ export async function getCatalogFresh(): Promise<HymnSummary[]> {
 export async function getCatalogCached(): Promise<HymnSummary[]> {
   const cached = await cacheGet<CachedValue<HymnSummary[]>>(CATALOG_CACHE_KEY);
 
-  const cacheIsFresh =
-    cached &&
-    Date.now() - cached.savedAt < CATALOG_TTL_MS;
+  const cacheIsFresh = cached && Date.now() - cached.savedAt < CATALOG_TTL_MS;
 
   if (cacheIsFresh) {
     return cached.data;
@@ -346,7 +307,7 @@ export async function getCatalogCached(): Promise<HymnSummary[]> {
 }
 
 export async function refreshCatalogInBackground(
-  onFreshData?: (data: HymnSummary[]) => void
+  onFreshData?: (data: HymnSummary[]) => void,
 ) {
   try {
     const fresh = await getCatalogFresh();
@@ -356,7 +317,6 @@ export async function refreshCatalogInBackground(
   }
 }
 
-
 function extractLines(lines?: ApiLine[]) {
   return lines?.map((line) => line.text).filter(Boolean) ?? [];
 }
@@ -364,21 +324,18 @@ function extractLines(lines?: ApiLine[]) {
 function mergeApiHymns(
   summary: HymnSummary,
   english?: ApiHymnData,
-  yoruba?: ApiHymnData
+  yoruba?: ApiHymnData,
 ): Hymn {
   const englishStanzas = new Map(
-    english?.stanzas.map((stanza) => [stanza.no, stanza]) ?? []
+    english?.stanzas.map((stanza) => [stanza.no, stanza]) ?? [],
   );
 
   const yorubaStanzas = new Map(
-    yoruba?.stanzas.map((stanza) => [stanza.no, stanza]) ?? []
+    yoruba?.stanzas.map((stanza) => [stanza.no, stanza]) ?? [],
   );
 
   const stanzaNumbers = Array.from(
-    new Set([
-      ...englishStanzas.keys(),
-      ...yorubaStanzas.keys(),
-    ])
+    new Set([...englishStanzas.keys(), ...yorubaStanzas.keys()]),
   ).sort((a, b) => a - b);
 
   const verses: Verse[] = stanzaNumbers.map((number) => ({
@@ -393,22 +350,13 @@ function mergeApiHymns(
   return {
     ...summary,
 
-    categoryEn:
-      english?.category ??
-      summary.categoryEn,
+    categoryEn: english?.category ?? summary.categoryEn,
 
-    categoryYo:
-      yoruba?.category ??
-      summary.categoryYo,
+    categoryYo: yoruba?.category ?? summary.categoryYo,
 
-    meter:
-      english?.meter ??
-      yoruba?.meter ??
-      summary.meter,
+    meter: english?.meter ?? yoruba?.meter ?? summary.meter,
 
-    scripture:
-      english?.scripture ??
-      yoruba?.scripture,
+    scripture: english?.scripture ?? yoruba?.scripture,
 
     verses,
 
@@ -424,20 +372,13 @@ function mergeApiHymns(
 
 export async function getHymnCached(
   summary: HymnSummary,
-  options?: { forceRefresh?: boolean }
+  options?: { forceRefresh?: boolean },
 ): Promise<Hymn> {
-  const key = hymnCacheKey(
-    summary.hymnType,
-    summary.number
-  );
+  const key = hymnCacheKey(summary.hymnType, summary.number);
 
-  const cached =
-    await cacheGet<CachedValue<Hymn>>(key);
+  const cached = await cacheGet<CachedValue<Hymn>>(key);
 
-  if (
-    cached &&
-    !options?.forceRefresh
-  ) {
+  if (cached && !options?.forceRefresh) {
     return cached.data;
   }
 
@@ -446,26 +387,16 @@ export async function getHymnCached(
   const english = findCollectionHymn(
     "english",
     summary.hymnType,
-    summary.number
+    summary.number,
   );
 
-  const yoruba = findCollectionHymn(
-    "yoruba",
-    summary.hymnType,
-    summary.number
-  );
+  const yoruba = findCollectionHymn("yoruba", summary.hymnType, summary.number);
 
   if (!english && !yoruba) {
-    throw new Error(
-      `Could not find hymn ${summary.number}.`
-    );
+    throw new Error(`Could not find hymn ${summary.number}.`);
   }
 
-  const merged = mergeApiHymns(
-    summary,
-    english,
-    yoruba
-  );
+  const merged = mergeApiHymns(summary, english, yoruba);
 
   await cacheSet<CachedValue<Hymn>>(key, {
     savedAt: Date.now(),
@@ -477,7 +408,7 @@ export async function getHymnCached(
 
 export async function downloadAllHymns(
   catalog: HymnSummary[],
-  onProgress?: (done: number, total: number, hymn: HymnSummary) => void
+  onProgress?: (done: number, total: number, hymn: HymnSummary) => void,
 ): Promise<{ failed: number }> {
   await loadCollections();
 
@@ -503,7 +434,7 @@ export async function downloadAllHymns(
 export async function searchCachedLyrics(
   catalog: HymnSummary[],
   query: string,
-  limit = 40
+  limit = 40,
 ): Promise<HymnSummary[]> {
   const q = query.trim().toLowerCase();
   if (!q) return [];
@@ -516,26 +447,22 @@ export async function searchCachedLyrics(
     const english = findCollectionHymn(
       "english",
       summary.hymnType,
-      summary.number
+      summary.number,
     );
 
     const yoruba = findCollectionHymn(
       "yoruba",
       summary.hymnType,
-      summary.number
+      summary.number,
     );
 
     if (!english && !yoruba) continue;
 
     const lyricsText = [
-      ...(english?.stanzas ?? []).flatMap(s =>
-        s.lines.map(l => l.text)
-      ),
-      ...(yoruba?.stanzas ?? []).flatMap(s =>
-        s.lines.map(l => l.text)
-      ),
-      ...(english?.chorus?.lines ?? []).map(l => l.text),
-      ...(yoruba?.chorus?.lines ?? []).map(l => l.text),
+      ...(english?.stanzas ?? []).flatMap((s) => s.lines.map((l) => l.text)),
+      ...(yoruba?.stanzas ?? []).flatMap((s) => s.lines.map((l) => l.text)),
+      ...(english?.chorus?.lines ?? []).map((l) => l.text),
+      ...(yoruba?.chorus?.lines ?? []).map((l) => l.text),
     ]
       .join("\n")
       .toLowerCase();

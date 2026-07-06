@@ -23,3 +23,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+
+# Build output
+dist
+dist-ssr
+*.local
+*.bak
+
+# PWA generated files (if they appear outside dist)
+dev-sw.js
+dev-dist
