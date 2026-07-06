@@ -2386,6 +2386,7 @@ export default function App() {
         {screen !== "onboarding" && <DevotionalModal />}
       </div>
       <InstallPrompt />
+
     </div>
   );
 }

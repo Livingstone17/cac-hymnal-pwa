@@ -231,10 +231,35 @@ export default defineConfig(() => {
           ],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           navigateFallback: "/index.html",
+          // runtimeCaching: [
+          //   {
+          //     urlPattern: ({ url }) =>
+          //       url.origin === HYMNIZE_ORIGIN &&
+          //       url.pathname.startsWith("/api/collections/"),
+          //     handler: "StaleWhileRevalidate",
+          //     options: {
+          //       cacheName: "hymnize-collections-v1",
+          //       expiration: {
+          //         maxEntries: 10,
+          //         maxAgeSeconds: 60 * 60 * 24 * 365,
+          //       },
+          //       cacheableResponse: {
+          //         statuses: [0, 200],
+          //       },
+          //       backgroundSync: {
+          //         name: "collections-sync",
+          //         options: {
+          //           maxRetentionTime: 24 * 60,
+          //         },
+          //       },
+          //     },
+          //   },
+          // ],
           runtimeCaching: [
             {
+              // Hardcode the URL string here instead of using the variable
               urlPattern: ({ url }) =>
-                url.origin === HYMNIZE_ORIGIN &&
+                url.origin === "https://hymnize.com" &&
                 url.pathname.startsWith("/api/collections/"),
               handler: "StaleWhileRevalidate",
               options: {
