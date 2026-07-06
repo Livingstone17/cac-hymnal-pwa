@@ -105,6 +105,7 @@ import BottomNav from "../components/layout/BottomNav";
 import logo from "../assets/logo.png";
 // import { normalizeMeter } from "./helpers/hymnMeterHelper";
 import AllHymnsScreen from "../screens/AllHymnsScreen";
+import InstallPrompt from "./installPrompt";
 
 
 
@@ -2384,6 +2385,7 @@ export default function App() {
 
         {screen !== "onboarding" && <DevotionalModal />}
       </div>
+      <InstallPrompt />
     </div>
   );
 }
