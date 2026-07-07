@@ -34,7 +34,7 @@ export default function AllHymnsScreen({
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center gap-3 px-4 pt-1 pb-3 border-b border-border flex-shrink-0">
+            <div className="flex items-center gap-3 px-5 pt-5 pb-3 border-b border-border flex-shrink-0">
                 <button
                     onClick={onBack}
                     className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0"

@@ -106,7 +106,7 @@ import logo from "../assets/logo.png";
 // import { normalizeMeter } from "./helpers/hymnMeterHelper";
 import AllHymnsScreen from "../screens/AllHymnsScreen";
 import InstallPrompt from "./installPrompt";
-
+import SearchScreen from "../screens/SearchScreen";
 
 
 
@@ -402,7 +402,12 @@ export default function App() {
 
     const q = searchQuery.trim();
 
-    if (!q || !offlineReady) {
+    // if (!q || !offlineReady) {
+    //   setLyricsResults([]);
+    //   setLyricsSearchLoading(false);
+    //   return;
+    // }
+    if (!q || q.length < 2) {
       setLyricsResults([]);
       setLyricsSearchLoading(false);
       return;
@@ -1454,177 +1459,24 @@ export default function App() {
   };
 
   // ── Screen: Search ──────────────────────────────────────────────────────────
+  const renderSearch = () => (
+    <SearchScreen
+      hymns={hymns}
+      language={language}
+      offlineReady={offlineReady}
+      searchQuery={searchQuery}
+      setSearchQuery={setSearchQuery}
+      recentSearches={recentSearches}
+      setRecentSearches={setRecentSearches}
+      byNumber={byNumber}
+      byTitle={byTitle}
+      byCategory={byCategory}
+      lyricsResults={lyricsResults}
+      lyricsSearchLoading={lyricsSearchLoading}
+      onOpenHymn={(h) => void openHymn(h, "search")}
+    />
+  );
 
-  const renderSearch = () => {
-    const hasSearchQuery = Boolean(searchQuery.trim());
-
-    const hasAnySearchResults =
-      byNumber.length > 0 ||
-      byTitle.length > 0 ||
-      byCategory.length > 0 ||
-      lyricsResults.length > 0 ||
-      lyricsSearchLoading;
-
-    return (
-      <div className="flex flex-col h-full">
-        <div className="px-4 pt-1 pb-3 flex-shrink-0">
-          <h2 className="text-lg font-bold text-foreground mb-3">
-            {tr("Search Hymns", "Ìwádìí Orin")}
-          </h2>
-
-          <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && searchQuery.trim()) {
-                  setRecentSearches((prev) =>
-                    [
-                      searchQuery.trim(),
-                      ...prev.filter((s) => s !== searchQuery.trim()),
-                    ].slice(0, 6)
-                  );
-                }
-              }}
-              placeholder={tr(
-                "Search by number, title, category, or lyrics…",
-                "Ìwádìí nípasẹ̀ nọ́mbà, àkọlé, ẹ̀ka, tàbí orin…"
-              )}
-              className="w-full pl-10 pr-9 py-3 bg-muted rounded-xl text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2"
-              style={
-                { "--tw-ring-color": "rgba(26,35,126,0.25)" } as CSSProperties
-              }
-            />
-
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-              >
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
-            )}
-          </div>
-
-          {!searchQuery && recentSearches.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {recentSearches.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSearchQuery(s)}
-                  className="bg-muted text-muted-foreground text-xs px-3 py-1.5 rounded-full border border-border hover:text-foreground transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {!offlineReady && (
-            <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-              {tr(
-                "Tip: download hymns in Settings to enable offline lyrics search.",
-                "Àbá: ṣe igbasilẹ orin ninu Ètò lati jẹ́ kí ìwádìí orin ṣiṣẹ́ láìní ìnítánẹ́ẹ̀tì."
-              )}
-            </p>
-          )}
-        </div>
-
-        <div
-          className="flex-1 overflow-y-auto px-4 pb-4"
-          style={{ scrollbarWidth: "none" }}
-        >
-          {!hasSearchQuery ? (
-            <div className="pt-10 text-center">
-              <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-3">
-                <Search className="w-7 h-7 text-muted-foreground" />
-              </div>
-
-              <p className="text-muted-foreground text-sm">
-                {tr(
-                  `Search ${hymns.length || ""} CAC hymns`,
-                  `Ìwádìí orin CAC ${hymns.length || ""}`
-                )}
-              </p>
-            </div>
-          ) : !hasAnySearchResults ? (
-            <div className="pt-14 text-center px-6">
-              <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-3">
-                <FileText className="w-7 h-7 text-muted-foreground" />
-              </div>
-
-              <p className="font-bold text-foreground mb-1">
-                {tr("No hymns found", "Kò sí orin")}
-              </p>
-
-              <p className="text-muted-foreground text-sm">
-                {tr(
-                  "Try searching in English or Yoruba.",
-                  "Gbiyanju ìwádìí ní Gẹ̀ẹ́sì tàbí Yorùbá."
-                )}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-5 pt-2">
-              {byNumber.length > 0 && (
-                <ResultGroup
-                  title={tr("By Number", "Nípasẹ̀ Nọ́mbà")}
-                  icon={Hash}
-                  hymns={byNumber}
-                  query={searchQuery}
-                  language={language}
-                  onOpen={(h) => void openHymn(h, "search")}
-                />
-              )}
-
-              {byTitle.length > 0 && (
-                <ResultGroup
-                  title={tr("By Title", "Nípasẹ̀ Àkọlé")}
-                  icon={FileText}
-                  hymns={byTitle}
-                  query={searchQuery}
-                  language={language}
-                  onOpen={(h) => void openHymn(h, "search")}
-                />
-              )}
-
-              {byCategory.length > 0 && (
-                <ResultGroup
-                  title={tr("By Category", "Nípasẹ̀ Ẹ̀ka")}
-                  icon={Grid3X3}
-                  hymns={byCategory}
-                  query={searchQuery}
-                  language={language}
-                  onOpen={(h) => void openHymn(h, "search")}
-                />
-              )}
-
-              {lyricsSearchLoading && (
-                <div className="flex items-center justify-center gap-2 text-muted-foreground text-xs py-4">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {tr("Searching cached lyrics…", "Ń wá nínú orin tí a pamọ́…")}
-                </div>
-              )}
-
-              {lyricsResults.length > 0 && (
-                <ResultGroup
-                  title={tr("By Lyrics", "Nípasẹ̀ Orin")}
-                  icon={Music}
-                  hymns={lyricsResults}
-                  query={searchQuery}
-                  language={language}
-                  onOpen={(h) => void openHymn(h, "search")}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   // ── Screen: Categories ──────────────────────────────────────────────────────
 
@@ -1647,7 +1499,7 @@ export default function App() {
 
   const renderCategories = () => (
     <div className="flex flex-col h-full">
-      <div className="px-4 pt-1 pb-3 flex-shrink-0">
+      <div className="px-4 pt-5 pb-3 flex-shrink-0">
         <h2 className="text-lg font-bold text-foreground">
           {tr("Categories", "Àwọn Ẹ̀ka")}
         </h2>
@@ -1709,7 +1561,7 @@ export default function App() {
 
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center gap-3 px-4 pt-1 pb-3 border-b border-border flex-shrink-0">
+        <div className="flex items-center gap-3 px-4 pt-5 pb-3 border-b border-border flex-shrink-0">
           <button
             onClick={() => {
               setSelectedCategory(null);
@@ -1790,7 +1642,7 @@ export default function App() {
 
   const renderFavorites = () => (
     <div className="flex flex-col h-full">
-      <div className="px-4 pt-1 pb-3 flex-shrink-0">
+      <div className="px-4 pt-5 pb-3 flex-shrink-0">
         <h2 className="text-lg font-bold text-foreground">
           {tr("Favorites", "Àyọ̀ Mi")}
         </h2>
@@ -1909,7 +1761,7 @@ export default function App() {
 
   const renderSettings = () => (
     <div className="flex flex-col h-full">
-      <div className="px-4 pt-1 pb-3 flex-shrink-0">
+      <div className="px-4 pt-5 pb-3 flex-shrink-0">
         <h2 className="text-lg font-bold text-foreground">
           {tr("Settings", "Ìtòlẹ́sẹẹ̀")}
         </h2>

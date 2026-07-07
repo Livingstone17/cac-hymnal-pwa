@@ -436,43 +436,192 @@ export async function searchCachedLyrics(
   query: string,
   limit = 40,
 ): Promise<HymnSummary[]> {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
+  const trimmed = query.trim();
+  if (!trimmed || trimmed.length < 2) return [];
 
-  await loadCollections();
+  // ── Normalize helpers ───────────────────────────────────────────────────
 
-  const results: HymnSummary[] = [];
+  function normalize(text: string): string {
+    return text.toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  function stripDiacritics(text: string): string {
+    return normalize(text)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .normalize("NFC");
+  }
+
+  const queryNorm = normalize(trimmed);
+  const queryStripped = stripDiacritics(trimmed);
+
+  // ── Scoring ─────────────────────────────────────────────────────────────
+
+  interface ScoredResult {
+    summary: HymnSummary;
+    score: number;
+  }
+
+  function scoreText(text: string, isBlock: boolean): number {
+    const textNorm = normalize(text);
+    const textStripped = stripDiacritics(text);
+
+    if (textNorm.includes(queryNorm)) {
+      return isBlock ? 70 : 110;
+    }
+
+    if (textStripped.includes(queryStripped)) {
+      return isBlock ? 50 : 90;
+    }
+
+    return 0;
+  }
+
+  // ── Load hymns from cache ───────────────────────────────────────────────
+  //
+  // Try in-memory collections first.
+  // If empty (page was reloaded while offline), fall back to IndexedDB cache
+  // where getHymnCached / downloadAllHymns stored each full Hymn.
+
+  let useCollections = false;
+
+  try {
+    await loadCollections();
+    // Verify collections actually have data
+    const totalInMemory =
+      collections.english.regular.length +
+      collections.english.various.length +
+      collections.yoruba.regular.length +
+      collections.yoruba.various.length;
+
+    if (totalInMemory > 0) {
+      useCollections = true;
+    }
+  } catch {
+    // loadCollections failed (offline) — fall back to IndexedDB
+    useCollections = false;
+  }
+
+  // ── Search loop ─────────────────────────────────────────────────────────
+
+  const scored: ScoredResult[] = [];
 
   for (const summary of catalog) {
-    const english = findCollectionHymn(
-      "english",
-      summary.hymnType,
-      summary.number,
-    );
+    let lines: string[] = [];
+    let blocks: string[] = [];
 
-    const yoruba = findCollectionHymn(
-      "yoruba",
-      summary.hymnType,
-      summary.number,
-    );
+    if (useCollections) {
+      // ── Path A: use in-memory collections ───────────────────────────
 
-    if (!english && !yoruba) continue;
+      const english = findCollectionHymn(
+        "english",
+        summary.hymnType,
+        summary.number,
+      );
 
-    const lyricsText = [
-      ...(english?.stanzas ?? []).flatMap((s) => s.lines.map((l) => l.text)),
-      ...(yoruba?.stanzas ?? []).flatMap((s) => s.lines.map((l) => l.text)),
-      ...(english?.chorus?.lines ?? []).map((l) => l.text),
-      ...(yoruba?.chorus?.lines ?? []).map((l) => l.text),
-    ]
-      .join("\n")
-      .toLowerCase();
+      const yoruba = findCollectionHymn(
+        "yoruba",
+        summary.hymnType,
+        summary.number,
+      );
 
-    if (lyricsText.includes(q)) {
-      results.push(summary);
+      if (!english && !yoruba) continue;
 
-      if (results.length >= limit) break;
+      for (const stanza of english?.stanzas ?? []) {
+        const stanzaLines = stanza.lines.map((l) => l.text).filter(Boolean);
+        lines.push(...stanzaLines);
+        blocks.push(stanzaLines.join(" "));
+      }
+
+      for (const stanza of yoruba?.stanzas ?? []) {
+        const stanzaLines = stanza.lines.map((l) => l.text).filter(Boolean);
+        lines.push(...stanzaLines);
+        blocks.push(stanzaLines.join(" "));
+      }
+
+      if (english?.chorus?.lines) {
+        const chorusLines = english.chorus.lines
+          .map((l) => l.text)
+          .filter(Boolean);
+        lines.push(...chorusLines);
+        blocks.push(chorusLines.join(" "));
+      }
+
+      if (yoruba?.chorus?.lines) {
+        const chorusLines = yoruba.chorus.lines
+          .map((l) => l.text)
+          .filter(Boolean);
+        lines.push(...chorusLines);
+        blocks.push(chorusLines.join(" "));
+      }
+    } else {
+      // ── Path B: use IndexedDB-cached full Hymn ──────────────────────
+
+      const key = hymnCacheKey(summary.hymnType, summary.number);
+      const cached = await cacheGet<CachedValue<Hymn>>(key);
+
+      if (!cached?.data) continue;
+
+      const hymn = cached.data;
+
+      for (const verse of hymn.verses) {
+        if (verse.en.length > 0) {
+          lines.push(...verse.en);
+          blocks.push(verse.en.join(" "));
+        }
+
+        if (verse.yo.length > 0) {
+          lines.push(...verse.yo);
+          blocks.push(verse.yo.join(" "));
+        }
+      }
+
+      if (hymn.chorus) {
+        if (hymn.chorus.en.length > 0) {
+          lines.push(...hymn.chorus.en);
+          blocks.push(hymn.chorus.en.join(" "));
+        }
+
+        if (hymn.chorus.yo.length > 0) {
+          lines.push(...hymn.chorus.yo);
+          blocks.push(hymn.chorus.yo.join(" "));
+        }
+      }
+    }
+
+    // ── Score this hymn ─────────────────────────────────────────────────
+
+    if (lines.length === 0) continue;
+
+    let bestScore = 0;
+
+    // 1. Check individual lines (highest score possible)
+    for (const line of lines) {
+      const s = scoreText(line, false);
+      if (s > bestScore) bestScore = s;
+      if (bestScore >= 110) break;
+    }
+
+    // 2. Check joined verse blocks (catches cross-line phrases)
+    if (bestScore < 70) {
+      for (const block of blocks) {
+        const s = scoreText(block, true);
+        if (s > bestScore) bestScore = s;
+        if (bestScore >= 70) break;
+      }
+    }
+
+    if (bestScore > 0) {
+      scored.push({ summary, score: bestScore });
     }
   }
 
-  return results;
+  // ── Sort and return ─────────────────────────────────────────────────────
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.summary.number - b.summary.number;
+  });
+
+  return scored.slice(0, limit).map((item) => item.summary);
 }
