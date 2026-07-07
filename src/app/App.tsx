@@ -401,12 +401,6 @@ export default function App() {
     let alive = true;
 
     const q = searchQuery.trim();
-
-    // if (!q || !offlineReady) {
-    //   setLyricsResults([]);
-    //   setLyricsSearchLoading(false);
-    //   return;
-    // }
     if (!q || q.length < 2) {
       setLyricsResults([]);
       setLyricsSearchLoading(false);
@@ -2190,6 +2184,8 @@ export default function App() {
       style={{
         background:
           "linear-gradient(135deg, #1a237e 0%, #283593 40%, #1565c0 100%)",
+        paddingTop: "15px",
+        paddingBottom: "15px"
       }}
     >
       <div
