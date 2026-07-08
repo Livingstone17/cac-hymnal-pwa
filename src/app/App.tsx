@@ -1221,9 +1221,9 @@ export default function App() {
                   {hymnTitle(selectedHymn, hymnLang)}
                 </motion.h1>
 
-                <p className="text-muted-foreground text-sm mt-1">
+                {/* <p className="text-muted-foreground text-sm mt-1">
                   {hymnOtherTitle(selectedHymn, hymnLang)}
-                </p>
+                </p> */}
 
                 <p className="text-muted-foreground text-xs mt-1.5 font-medium">
                   {hymnLang === "en"

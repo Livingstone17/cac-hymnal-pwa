@@ -189,6 +189,7 @@ export default defineConfig(() => {
           start_url: "/",
           scope: "/",
           display: "standalone",
+          display_override: ["fullscreen", "window-controls-overlay"],
           orientation: "portrait",
           theme_color: "#1A237E",
           background_color: "#1A237E",
