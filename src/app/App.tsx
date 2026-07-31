@@ -2019,7 +2019,7 @@ export default function App() {
           ©CAC ITEDO YIYANJU District. All rights reserved.
         </p>
         <p className="text-center text-[11px] text-muted-foreground pb-2">
-          Designed & Developed by Phos Technologies
+          Designed & Developed by Zaophos
         </p>
         {/* PWA Feedback & Support Links */}
         <div style={{ gap: "0.5rem", display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
