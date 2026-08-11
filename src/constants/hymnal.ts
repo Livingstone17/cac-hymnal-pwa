@@ -1,6 +1,14 @@
-// export const API_BASE = "https://worker.hymnize.com/api";
+const dataBase = import.meta.env.VITE_HYMNAL_DATA_BASE as string | undefined;
 
-export const API_BASE = "/api";
+/**
+ * Base URL for the static CAC hymnal dataset (served through jsDelivr in
+ * production). Configurable via VITE_HYMNAL_DATA_BASE; falls back to a
+ * same-origin /data path so builds without the env var fail gracefully.
+ */
+export const HYMNAL_DATA_BASE = (
+  dataBase && dataBase.trim().length > 0 ? dataBase.trim() : "/data"
+).replace(/\/+$/, "");
+
 export const DENOMINATION = "cac";
 
 export const DB_NAME = "cac-gospel-hymnal-db";

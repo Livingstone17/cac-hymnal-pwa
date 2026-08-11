@@ -1,18 +1,23 @@
 // hymnizeApiLayer.ts
 //
-// Performance-focused API layer:
-//  1. (P1) Collections are snapshotted into IndexedDB so fresh-cache sessions
-//     restore them in milliseconds instead of re-downloading ~3 MB.
-//  2. (P3) Lyrics search uses a precomputed in-memory index (normalized +
-//     diacritic-stripped variants built once) instead of re-normalizing every
-//     line of every hymn on every keystroke.
+// Data layer for the static CAC hymnal dataset, served through jsDelivr
+// (base URL configurable via VITE_HYMNAL_DATA_BASE):
+//
+//   - Four lightweight catalog indexes (english|yoruba / regular|various /
+//     index.json) — metadata only, no lyrics.
+//   - Individual merged hymn files (merged/{type}/{id}.json) — both English
+//     and Yoruba in a single response, fetched only when a hymn is opened.
+//   - A precomputed lyrics search index (search-index.json) — loaded once,
+//     cached in IndexedDB, and kept in memory for subsequent local searches.
+//
+// Everything is snapshotted into IndexedDB so fresh-cache sessions restore in
+// milliseconds, and offline users keep access to previously cached hymns.
 
 import {
-  API_BASE,
   CACHE_PREFIX,
   CATALOG_CACHE_KEY,
   CATALOG_TTL_MS,
-  DENOMINATION,
+  HYMNAL_DATA_BASE,
 } from "../constants/hymnal";
 
 import { cacheGet, cacheSet } from "../lib/indexedDB";
@@ -47,42 +52,76 @@ interface ApiChorus {
   lines: ApiLine[];
 }
 
-interface ApiCollectionHymn {
+// ── Catalog index (data/{language}/{type}/index.json) ──────────────────────
+
+interface CatalogIndexEntry {
   id: number;
+  title: string;
   category: string;
   meter: string | null;
-  title: string;
   scripture: string | null;
-  stanzas: ApiStanza[];
-  chorus: ApiChorus | null;
 }
 
-interface ApiHymnData {
-  id: number;
-  original_id: number;
-
-  denomination: string;
+interface CatalogIndexFile {
   language: ApiLanguage;
-  hymn_type: HymnType;
+  type: HymnType;
+  count: number;
+  hymns: CatalogIndexEntry[];
+}
 
+interface CatalogIndexSnapshot {
+  savedAt: number;
+  english: { regular: CatalogIndexEntry[]; various: CatalogIndexEntry[] };
+  yoruba: { regular: CatalogIndexEntry[]; various: CatalogIndexEntry[] };
+}
+
+// ── Merged hymn (data/merged/{type}/{id}.json) ─────────────────────────────
+
+interface MergedLanguage {
+  id: number;
+  language: ApiLanguage;
+  type: HymnType;
   category: string;
   meter: string | null;
   title: string;
   scripture: string | null;
-
   stanzas: ApiStanza[];
   chorus: ApiChorus | null;
 }
 
-const COLLECTIONS_CACHE_KEY = `${CACHE_PREFIX}:collections:v1`;
-
-interface CollectionsSnapshot {
-  savedAt: number;
-  english: { regular: ApiHymnData[]; various: ApiHymnData[] };
-  yoruba: { regular: ApiHymnData[]; various: ApiHymnData[] };
+interface MergedHymn {
+  id: number;
+  type: HymnType;
+  english: MergedLanguage | null;
+  yoruba: MergedLanguage | null;
 }
 
-const collections: Record<ApiLanguage, Record<HymnType, ApiHymnData[]>> = {
+// ── Search index (data/search-index.json) ──────────────────────────────────
+
+interface SearchIndexEntry {
+  id: number;
+  type?: HymnType | string;
+  english?: string[];
+  yoruba?: string[];
+  en?: string[];
+  yo?: string[];
+}
+
+interface SearchIndexFile {
+  hymns?: SearchIndexEntry[];
+  entries?: SearchIndexEntry[];
+  searchIndex?: SearchIndexEntry[];
+  search_index?: SearchIndexEntry[];
+}
+
+const CATALOG_INDEX_CACHE_KEY = `${CACHE_PREFIX}:catalog-index:v1`;
+const SEARCH_INDEX_CACHE_KEY = `${CACHE_PREFIX}:search-index:v1`;
+
+const SEARCH_INDEX_RETRY_MS = 10 * 60 * 1000; // re-attempt a failed index load
+
+// ── In-memory catalog indexes ──────────────────────────────────────────────
+
+const catalogIndex: Record<ApiLanguage, Record<HymnType, CatalogIndexEntry[]>> = {
   english: {
     regular: [],
     various: [],
@@ -94,10 +133,10 @@ const collections: Record<ApiLanguage, Record<HymnType, ApiHymnData[]>> = {
   },
 };
 
-let collectionsLoaded = false;
-let collectionsPromise: Promise<void> | null = null;
+let catalogIndexLoaded = false;
+let catalogIndexPromise: Promise<void> | null = null;
 
-// ── Lyrics search index (P3) ────────────────────────────────────────────────
+// ── Lyrics search index (P3) ───────────────────────────────────────────────
 
 interface LyricsEntry {
   lines: string[];
@@ -106,15 +145,36 @@ interface LyricsEntry {
   stripBlocks: string[];
 }
 
-/** hymnId → precomputed normalized lyrics. Rebuilt whenever collections change. */
-let lyricsIndex: Map<number, LyricsEntry> | null = null;
+interface ParsedSearchIndex {
+  /** hymnId (makeHymnId) → entry, for entries that carry a `type`. */
+  index: Map<number, LyricsEntry>;
+  /** bare hymn number → entry, for entries without a `type`. */
+  bareIndex: Map<number, LyricsEntry>;
+}
+
+/** In-memory parsed search index. Rebuilt on catalog refresh. */
+let searchIndex: ParsedSearchIndex | null = null;
+let searchIndexPromise: Promise<boolean> | null = null;
+let searchIndexLoadAttemptedAt: number | null = null;
 
 /**
  * Offline-only fallback index built once from the per-hymn IndexedDB cache.
- * Only populated when collections are unavailable (no snapshot, offline), so
- * repeated keystrokes don't re-read ~1000 hymn records on every search.
+ * Only used when the search index is unavailable (not yet generated, offline
+ * before it was cached), so repeated keystrokes don't re-read ~1000 hymn
+ * records on every search.
  */
 let offlineLyricsIndex: Map<number, LyricsEntry> | null = null;
+
+function normalize(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function stripDiacritics(text: string): string {
+  return normalize(text)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .normalize("NFC");
+}
 
 function entryFromHymn(hymn: Hymn): LyricsEntry | null {
   const lines: string[] = [];
@@ -180,102 +240,10 @@ async function getOfflineLyricsIndex(
   return offlineLyricsIndex;
 }
 
-function normalize(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function stripDiacritics(text: string): string {
-  return normalize(text)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .normalize("NFC");
-}
-
-function buildLyricsIndex(): Map<number, LyricsEntry> {
-  const index = new Map<number, LyricsEntry>();
-
-  // Merge both languages by hymn key so one entry holds en + yo lines.
-  const byKey = new Map<string, ApiHymnData[]>();
-
-  for (const language of ["english", "yoruba"] as ApiLanguage[]) {
-    for (const hymnType of ["regular", "various"] as HymnType[]) {
-      for (const hymn of collections[language][hymnType]) {
-        const key = makeHymnKey(hymn.hymn_type, hymn.original_id);
-        const list = byKey.get(key) ?? [];
-        list.push(hymn);
-        byKey.set(key, list);
-      }
-    }
-  }
-
-  for (const [key, hymns] of byKey) {
-    const lines: string[] = [];
-    const blocks: string[] = [];
-
-    for (const hymn of hymns) {
-      for (const stanza of hymn.stanzas ?? []) {
-        const stanzaLines = stanza.lines.map((l) => l.text).filter(Boolean);
-        lines.push(...stanzaLines);
-        blocks.push(stanzaLines.join(" "));
-      }
-
-      if (hymn.chorus?.lines) {
-        const chorusLines = hymn.chorus.lines
-          .map((l) => l.text)
-          .filter(Boolean);
-        lines.push(...chorusLines);
-        blocks.push(chorusLines.join(" "));
-      }
-    }
-
-    if (!lines.length) continue;
-
-    const [type, num] = key.split(":");
-    index.set(makeHymnId(type as HymnType, Number(num)), {
-      lines: lines.map(normalize),
-      blocks: blocks.map(normalize),
-      stripLines: lines.map(stripDiacritics),
-      stripBlocks: blocks.map(stripDiacritics),
-    });
-  }
-
-  return index;
-}
-
-function getLyricsIndex(): Map<number, LyricsEntry> | null {
-  if (lyricsIndex) return lyricsIndex;
-  if (!collectionsLoaded) return null;
-  lyricsIndex = buildLyricsIndex();
-  return lyricsIndex;
-}
-
-// ── Collection loading (P1) ─────────────────────────────────────────────────
-
-function normalizeCollectionHymn(
-  hymn: ApiCollectionHymn,
-  language: ApiLanguage,
-  hymnType: HymnType,
-): ApiHymnData {
-  return {
-    id: hymn.id,
-    original_id: hymn.id,
-
-    denomination: DENOMINATION,
-    language,
-    hymn_type: hymnType,
-
-    category: hymn.category,
-    meter: hymn.meter,
-    title: hymn.title,
-    scripture: hymn.scripture,
-
-    stanzas: hymn.stanzas,
-    chorus: hymn.chorus,
-  };
-}
+// ── Network ────────────────────────────────────────────────────────────────
 
 async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${HYMNAL_DATA_BASE}${path}`, {
     method: "GET",
     headers: {
       Accept: "application/json",
@@ -284,90 +252,98 @@ async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   });
 
   if (!res.ok) {
-    throw new Error(`Hymnize API error: ${res.status} ${res.statusText}`);
+    throw new Error(`Hymnal data error: ${res.status} ${res.statusText}`);
   }
 
   return res.json() as Promise<T>;
 }
 
-async function fetchCollection(
+// ── Catalog index loading ──────────────────────────────────────────────────
+
+async function fetchCatalogIndexFile(
   language: ApiLanguage,
   hymnType: HymnType,
   signal?: AbortSignal,
-): Promise<ApiHymnData[]> {
-  const hymns = await apiGet<ApiCollectionHymn[]>(
-    `/collections/${DENOMINATION}%2F${language}%2F${hymnType}`,
+): Promise<CatalogIndexEntry[]> {
+  const file = await apiGet<CatalogIndexFile>(
+    `/${language}/${hymnType}/index.json`,
     signal,
   );
 
-  return hymns.map((hymn) => normalizeCollectionHymn(hymn, language, hymnType));
+  return file.hymns ?? [];
 }
 
-async function saveCollectionsSnapshot(
-  englishRegular: ApiHymnData[],
-  englishVarious: ApiHymnData[],
-  yorubaRegular: ApiHymnData[],
-  yorubaVarious: ApiHymnData[],
+async function saveCatalogIndexSnapshot(
+  englishRegular: CatalogIndexEntry[],
+  englishVarious: CatalogIndexEntry[],
+  yorubaRegular: CatalogIndexEntry[],
+  yorubaVarious: CatalogIndexEntry[],
 ) {
-  const snapshot: CollectionsSnapshot = {
+  const snapshot: CatalogIndexSnapshot = {
     savedAt: Date.now(),
     english: { regular: englishRegular, various: englishVarious },
     yoruba: { regular: yorubaRegular, various: yorubaVarious },
   };
 
-  await cacheSet(COLLECTIONS_CACHE_KEY, snapshot);
+  await cacheSet(CATALOG_INDEX_CACHE_KEY, snapshot);
 }
 
-async function loadCollections(
+async function loadCatalogIndexes(
   signal?: AbortSignal,
   options?: { force?: boolean },
 ): Promise<void> {
   const force = Boolean(options?.force);
 
-  if (collectionsLoaded && !force) {
+  if (catalogIndexLoaded && !force) {
     return;
   }
 
-  if (collectionsPromise) {
-    return collectionsPromise;
+  if (catalogIndexPromise) {
+    return catalogIndexPromise;
   }
 
   // Restore from the IndexedDB snapshot first — zero network when available.
   if (!force) {
-    const snapshot = await cacheGet<CollectionsSnapshot>(COLLECTIONS_CACHE_KEY);
+    const snapshot = await cacheGet<CatalogIndexSnapshot>(
+      CATALOG_INDEX_CACHE_KEY,
+    );
 
     if (snapshot) {
-      collections.english.regular = snapshot.english.regular;
-      collections.english.various = snapshot.english.various;
-      collections.yoruba.regular = snapshot.yoruba.regular;
-      collections.yoruba.various = snapshot.yoruba.various;
+      catalogIndex.english.regular = snapshot.english.regular;
+      catalogIndex.english.various = snapshot.english.various;
+      catalogIndex.yoruba.regular = snapshot.yoruba.regular;
+      catalogIndex.yoruba.various = snapshot.yoruba.various;
 
-      collectionsLoaded = true;
-      lyricsIndex = null; // new content → rebuild on next search
+      catalogIndexLoaded = true;
       return;
     }
   }
 
-  collectionsPromise = (async () => {
+  catalogIndexPromise = (async () => {
     const [englishRegular, englishVarious, yorubaRegular, yorubaVarious] =
       await Promise.all([
-        fetchCollection("english", "regular", signal),
-        fetchCollection("english", "various", signal),
-        fetchCollection("yoruba", "regular", signal),
-        fetchCollection("yoruba", "various", signal),
+        fetchCatalogIndexFile("english", "regular", signal),
+        fetchCatalogIndexFile("english", "various", signal),
+        fetchCatalogIndexFile("yoruba", "regular", signal),
+        fetchCatalogIndexFile("yoruba", "various", signal),
       ]);
 
-    collections.english.regular = englishRegular;
-    collections.english.various = englishVarious;
+    catalogIndex.english.regular = englishRegular;
+    catalogIndex.english.various = englishVarious;
 
-    collections.yoruba.regular = yorubaRegular;
-    collections.yoruba.various = yorubaVarious;
+    catalogIndex.yoruba.regular = yorubaRegular;
+    catalogIndex.yoruba.various = yorubaVarious;
 
-    collectionsLoaded = true;
-    lyricsIndex = null;
+    catalogIndexLoaded = true;
+
+    // Catalog changed — drop the in-memory search index and clear the retry
+    // guard so the next search revalidates against the (freshly TTL'd) copy
+    // instead of waiting out the 10-minute backoff.
+    searchIndex = null;
+    searchIndexLoadAttemptedAt = null;
 
     // Fire-and-forget snapshot so next session starts offline-ready.
-    void saveCollectionsSnapshot(
+    void saveCatalogIndexSnapshot(
       englishRegular,
       englishVarious,
       yorubaRegular,
@@ -376,55 +352,43 @@ async function loadCollections(
   })();
 
   try {
-    await collectionsPromise;
+    await catalogIndexPromise;
   } finally {
-    collectionsPromise = null;
+    catalogIndexPromise = null;
   }
 }
 
-function getAllCollectionHymns(): ApiHymnData[] {
-  return [
-    ...collections.english.regular,
-    ...collections.english.various,
-    ...collections.yoruba.regular,
-    ...collections.yoruba.various,
-  ];
-}
-
-function findCollectionHymn(
-  language: ApiLanguage,
-  hymnType: HymnType,
-  hymnNumber: number,
-): ApiHymnData | undefined {
-  return collections[language][hymnType].find(
-    (hymn) => hymn.original_id === hymnNumber,
-  );
-}
+// ── Catalog (HymnSummary[]) ────────────────────────────────────────────────
 
 export async function fetchCatalog(
   signal?: AbortSignal,
   options?: { forceCollections?: boolean },
 ): Promise<HymnSummary[]> {
-  await loadCollections(signal, { force: options?.forceCollections });
+  await loadCatalogIndexes(signal, { force: options?.forceCollections });
 
-  const englishMap = new Map(
-    getAllCollectionHymns()
-      .filter((hymn) => hymn.language === "english")
-      .map((hymn) => [makeHymnKey(hymn.hymn_type, hymn.original_id), hymn]),
+  // A hymn number is only unique within its type (regular vs various), so
+  // build the maps per (type, id) instead of by bare id.
+  const englishByKey = new Map<string, CatalogIndexEntry>();
+  const yorubaByKey = new Map<string, CatalogIndexEntry>();
+
+  for (const hymnType of ["regular", "various"] as HymnType[]) {
+    for (const entry of catalogIndex.english[hymnType]) {
+      englishByKey.set(makeHymnKey(hymnType, entry.id), entry);
+    }
+
+    for (const entry of catalogIndex.yoruba[hymnType]) {
+      yorubaByKey.set(makeHymnKey(hymnType, entry.id), entry);
+    }
+  }
+
+  const keys = Array.from(
+    new Set([...englishByKey.keys(), ...yorubaByKey.keys()]),
   );
-
-  const yorubaMap = new Map(
-    getAllCollectionHymns()
-      .filter((hymn) => hymn.language === "yoruba")
-      .map((hymn) => [makeHymnKey(hymn.hymn_type, hymn.original_id), hymn]),
-  );
-
-  const keys = Array.from(new Set([...englishMap.keys(), ...yorubaMap.keys()]));
 
   return keys
     .map((key) => {
-      const english = englishMap.get(key);
-      const yoruba = yorubaMap.get(key);
+      const english = englishByKey.get(key);
+      const yoruba = yorubaByKey.get(key);
 
       const source = english ?? yoruba;
 
@@ -432,8 +396,9 @@ export async function fetchCatalog(
         throw new Error(`Invalid hymn key: ${key}`);
       }
 
-      const hymnType = source.hymn_type;
-      const number = source.original_id;
+      const [hymnTypeRaw, numberRaw] = key.split(":");
+      const hymnType = hymnTypeRaw as HymnType;
+      const number = Number(numberRaw);
 
       const categoryEn =
         english?.category ?? yoruba?.category ?? "Uncategorized";
@@ -459,6 +424,8 @@ export async function fetchCatalog(
         categoryYo,
 
         meter: english?.meter ?? yoruba?.meter ?? null,
+
+        scripture: english?.scripture ?? yoruba?.scripture ?? null,
       };
     })
     .sort((a, b) => {
@@ -509,15 +476,14 @@ export async function refreshCatalogInBackground(
   onFreshData?: (data: HymnSummary[]) => void,
 ) {
   try {
-    // (P1) If the cached catalog is still fresh, skip the ~3 MB re-download.
-    // Restore the in-memory collections from the IDB snapshot instead so hymn
-    // detail and lyrics search stay instant.
+    // If the cached catalog is still fresh, restore the catalog indexes from
+    // the IDB snapshot so hymn detail and lyrics search stay instant.
     const cached = await cacheGet<CachedValue<HymnSummary[]>>(CATALOG_CACHE_KEY);
 
     const cacheIsFresh = cached && Date.now() - cached.savedAt < CATALOG_TTL_MS;
 
     if (cacheIsFresh) {
-      await loadCollections();
+      await loadCatalogIndexes();
       return;
     }
 
@@ -528,15 +494,16 @@ export async function refreshCatalogInBackground(
   }
 }
 
+// ── Individual hymns ───────────────────────────────────────────────────────
+
 function extractLines(lines?: ApiLine[]) {
   return lines?.map((line) => line.text).filter(Boolean) ?? [];
 }
 
-function mergeApiHymns(
-  summary: HymnSummary,
-  english?: ApiHymnData,
-  yoruba?: ApiHymnData,
-): Hymn {
+function mergeMergedHymn(summary: HymnSummary, merged: MergedHymn): Hymn {
+  const english = merged.english;
+  const yoruba = merged.yoruba;
+
   const englishStanzas = new Map(
     english?.stanzas.map((stanza) => [stanza.no, stanza]) ?? [],
   );
@@ -567,7 +534,7 @@ function mergeApiHymns(
 
     meter: english?.meter ?? yoruba?.meter ?? summary.meter,
 
-    scripture: english?.scripture ?? yoruba?.scripture,
+    scripture: english?.scripture ?? yoruba?.scripture ?? summary.scripture,
 
     verses,
 
@@ -593,56 +560,185 @@ export async function getHymnCached(
     return cached.data;
   }
 
-  await loadCollections();
-
-  const english = findCollectionHymn(
-    "english",
-    summary.hymnType,
-    summary.number,
+  // A single request — the merged file contains both English and Yoruba, so
+  // the language toggle never triggers another network call.
+  const merged = await apiGet<MergedHymn>(
+    `/merged/${summary.hymnType}/${summary.number}.json`,
   );
 
-  const yoruba = findCollectionHymn("yoruba", summary.hymnType, summary.number);
-
-  if (!english && !yoruba) {
-    throw new Error(`Could not find hymn ${summary.number}.`);
-  }
-
-  const merged = mergeApiHymns(summary, english, yoruba);
+  const hymn = mergeMergedHymn(summary, merged);
 
   await cacheSet<CachedValue<Hymn>>(key, {
     savedAt: Date.now(),
-    data: merged,
+    data: hymn,
   });
 
-  return merged;
+  return hymn;
 }
+
+// ── Offline download ───────────────────────────────────────────────────────
 
 export async function downloadAllHymns(
   catalog: HymnSummary[],
   onProgress?: (done: number, total: number, hymn: HymnSummary) => void,
 ): Promise<{ failed: number }> {
-  await loadCollections();
-
   const total = catalog.length;
   let done = 0;
   let failed = 0;
+  let cursor = 0;
 
-  for (const hymn of catalog) {
-    try {
-      await getHymnCached(hymn);
-    } catch (error) {
-      failed += 1;
-      console.warn("Failed to cache hymn", hymn, error);
+  // Limited concurrency to avoid flooding the CDN with parallel requests.
+  const concurrency = 6;
+
+  async function worker() {
+    while (true) {
+      const currentIndex = cursor;
+      cursor += 1;
+
+      if (currentIndex >= total) return;
+
+      const hymn = catalog[currentIndex];
+
+      try {
+        await getHymnCached(hymn);
+      } catch (error) {
+        failed += 1;
+        console.warn("Failed to cache hymn", hymn, error);
+      }
+
+      done += 1;
+      onProgress?.(done, total, hymn);
     }
-
-    done += 1;
-    onProgress?.(done, total, hymn);
   }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
   // Per-hymn cache changed — rebuild the offline index lazily next search.
   offlineLyricsIndex = null;
 
   return { failed };
+}
+
+// ── Lyrics search ──────────────────────────────────────────────────────────
+
+function buildSearchIndex(file: SearchIndexFile): ParsedSearchIndex | null {
+  const entries = file.hymns ?? file.entries ?? file.searchIndex ?? file.search_index;
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return null;
+  }
+
+  const index = new Map<number, LyricsEntry>();
+  const bareIndex = new Map<number, LyricsEntry>();
+
+  for (const entry of entries) {
+    const lines = [
+      ...toLineArray(entry.english ?? entry.en),
+      ...toLineArray(entry.yoruba ?? entry.yo),
+    ].filter((line) => line.length > 0);
+
+    if (!lines.length) continue;
+
+    const normalized = lines.map(normalize);
+    const stripped = lines.map(stripDiacritics);
+
+    const lyricsEntry: LyricsEntry = {
+      lines: normalized,
+      // One joined block lets cross-line phrases match across the whole hymn.
+      blocks: [normalized.join(" ")],
+      stripLines: stripped,
+      stripBlocks: [stripped.join(" ")],
+    };
+
+    const type = entry.type === "regular" || entry.type === "various" ? entry.type : undefined;
+
+    if (type) {
+      index.set(makeHymnId(type, entry.id), lyricsEntry);
+    } else {
+      bareIndex.set(entry.id, lyricsEntry);
+    }
+  }
+
+  if (index.size === 0 && bareIndex.size === 0) {
+    return null;
+  }
+
+  return { index, bareIndex };
+}
+
+function toLineArray(value: string[] | string | undefined): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+async function loadSearchIndex(force = false): Promise<boolean> {
+  if (searchIndex) return true;
+
+  if (searchIndexPromise) {
+    return searchIndexPromise;
+  }
+
+  // Avoid a network attempt on every keystroke when the index is unavailable.
+  if (
+    !force &&
+    searchIndexLoadAttemptedAt !== null &&
+    Date.now() - searchIndexLoadAttemptedAt < SEARCH_INDEX_RETRY_MS
+  ) {
+    return false;
+  }
+
+  searchIndexPromise = (async () => {
+    try {
+      const cached = await cacheGet<CachedValue<SearchIndexFile>>(
+        SEARCH_INDEX_CACHE_KEY,
+      );
+
+      const cacheIsFresh = cached && Date.now() - cached.savedAt < CATALOG_TTL_MS;
+
+      let raw: SearchIndexFile | undefined;
+
+      if (cacheIsFresh) {
+        raw = cached.data;
+      } else {
+        try {
+          raw = await apiGet<SearchIndexFile>("/search-index.json");
+
+          await cacheSet<CachedValue<SearchIndexFile>>(SEARCH_INDEX_CACHE_KEY, {
+            savedAt: Date.now(),
+            data: raw,
+          });
+        } catch (error) {
+          // Offline or index not generated yet — fall back to a stale copy.
+          if (cached) raw = cached.data;
+          else throw error;
+        }
+      }
+
+      if (!raw) return false;
+
+      searchIndex = buildSearchIndex(raw);
+      return searchIndex !== null;
+    } catch {
+      return false;
+    } finally {
+      searchIndexPromise = null;
+      searchIndexLoadAttemptedAt = Date.now();
+    }
+  })();
+
+  return searchIndexPromise;
+}
+
+function lookupSearchEntry(
+  parsed: ParsedSearchIndex | null,
+  summary: HymnSummary,
+): LyricsEntry | undefined {
+  if (!parsed) return undefined;
+
+  return (
+    parsed.index.get(makeHymnId(summary.hymnType, summary.number)) ??
+    parsed.bareIndex.get(summary.number)
+  );
 }
 
 export async function searchCachedLyrics(
@@ -663,100 +759,50 @@ export async function searchCachedLyrics(
 
   const scored: ScoredResult[] = [];
 
-  // ── Load hymns into memory (snapshot restore or network) ────────────────
+  // ── Load lyrics source (search index → offline per-hymn cache) ──────────
 
-  let useCollections = false;
+  let parsed: ParsedSearchIndex | null = null;
+  let offlineIndex: Map<number, LyricsEntry> | null = null;
 
-  try {
-    await loadCollections();
-    // Verify collections actually have data
-    const totalInMemory =
-      collections.english.regular.length +
-      collections.english.various.length +
-      collections.yoruba.regular.length +
-      collections.yoruba.various.length;
-
-    if (totalInMemory > 0) {
-      useCollections = true;
-    }
-  } catch {
-    // loadCollections failed (offline, no snapshot) — fall back to IndexedDB
-    useCollections = false;
+  if (await loadSearchIndex()) {
+    parsed = searchIndex;
+  } else {
+    offlineIndex = await getOfflineLyricsIndex(catalog);
   }
 
-  // ── Path A: precomputed in-memory index ─────────────────────────────────
+  for (const summary of catalog) {
+    const entry = parsed
+      ? lookupSearchEntry(parsed, summary)
+      : offlineIndex?.get(summary.id);
 
-  if (useCollections) {
-    const index = getLyricsIndex();
+    if (!entry) continue;
 
-    for (const summary of catalog) {
-      const entry = index?.get(summary.id);
-      if (!entry) continue;
+    let bestScore = 0;
 
-      let bestScore = 0;
+    // 1. Individual lines (highest score possible)
+    for (let i = 0; i < entry.lines.length; i++) {
+      let s = 0;
+      if (entry.lines[i].includes(queryNorm)) s = 110;
+      else if (entry.stripLines[i].includes(queryStripped)) s = 90;
 
-      // 1. Individual lines (highest score possible)
-      for (let i = 0; i < entry.lines.length; i++) {
+      if (s > bestScore) bestScore = s;
+      if (bestScore >= 110) break;
+    }
+
+    // 2. Joined blocks (catches cross-line phrases)
+    if (bestScore < 70) {
+      for (let i = 0; i < entry.blocks.length; i++) {
         let s = 0;
-        if (entry.lines[i].includes(queryNorm)) s = 110;
-        else if (entry.stripLines[i].includes(queryStripped)) s = 90;
+        if (entry.blocks[i].includes(queryNorm)) s = 70;
+        else if (entry.stripBlocks[i].includes(queryStripped)) s = 50;
 
         if (s > bestScore) bestScore = s;
-        if (bestScore >= 110) break;
-      }
-
-      // 2. Joined verse blocks (catches cross-line phrases)
-      if (bestScore < 70) {
-        for (let i = 0; i < entry.blocks.length; i++) {
-          let s = 0;
-          if (entry.blocks[i].includes(queryNorm)) s = 70;
-          else if (entry.stripBlocks[i].includes(queryStripped)) s = 50;
-
-          if (s > bestScore) bestScore = s;
-          if (bestScore >= 70) break;
-        }
-      }
-
-      if (bestScore > 0) {
-        scored.push({ summary, score: bestScore });
+        if (bestScore >= 70) break;
       }
     }
-  } else {
-    // ── Path B: offline fallback via per-hymn IndexedDB cache ─────────────
-    // The index is built ONCE and reused across keystrokes, so ~1000 hymn
-    // records are read a single time instead of on every search.
 
-    const offlineIndex = await getOfflineLyricsIndex(catalog);
-
-    for (const summary of catalog) {
-      const entry = offlineIndex.get(summary.id);
-      if (!entry) continue;
-
-      let bestScore = 0;
-
-      for (let i = 0; i < entry.lines.length; i++) {
-        let s = 0;
-        if (entry.lines[i].includes(queryNorm)) s = 110;
-        else if (entry.stripLines[i].includes(queryStripped)) s = 90;
-
-        if (s > bestScore) bestScore = s;
-        if (bestScore >= 110) break;
-      }
-
-      if (bestScore < 70) {
-        for (let i = 0; i < entry.blocks.length; i++) {
-          let s = 0;
-          if (entry.blocks[i].includes(queryNorm)) s = 70;
-          else if (entry.stripBlocks[i].includes(queryStripped)) s = 50;
-
-          if (s > bestScore) bestScore = s;
-          if (bestScore >= 70) break;
-        }
-      }
-
-      if (bestScore > 0) {
-        scored.push({ summary, score: bestScore });
-      }
+    if (bestScore > 0) {
+      scored.push({ summary, score: bestScore });
     }
   }
 

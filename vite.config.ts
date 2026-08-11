@@ -160,6 +160,7 @@ function figmaAssetResolver(): Plugin {
 }
 
 export default defineConfig(() => {
+ 
   return {
     plugins: [
       figmaAssetResolver(),
@@ -256,26 +257,21 @@ export default defineConfig(() => {
           // ],
           runtimeCaching: [
             {
-              // Match the app's actual requests: it fetches SAME-ORIGIN
-              // `/api/collections/...` (rewritten to hymnize.com by Vercel),
-              // so match on pathname regardless of origin.
+              // Match the app's actual data requests: jsDelivr in production
+              // (configured via VITE_HYMNAL_DATA_BASE) or a same-origin
+              // `/data/...` path when the env var is absent.
               urlPattern: ({ url }) =>
-                url.pathname.startsWith("/api/collections/"),
+                url.hostname.includes("jsdelivr") ||
+                url.pathname.startsWith("/data/"),
               handler: "StaleWhileRevalidate",
               options: {
-                cacheName: "hymnize-collections-v1",
+                cacheName: "hymnal-data-v1",
                 expiration: {
-                  maxEntries: 10,
+                  maxEntries: 20,
                   maxAgeSeconds: 60 * 60 * 24 * 365,
                 },
                 cacheableResponse: {
                   statuses: [0, 200],
-                },
-                backgroundSync: {
-                  name: "collections-sync",
-                  options: {
-                    maxRetentionTime: 24 * 60,
-                  },
                 },
               },
             },
@@ -289,15 +285,5 @@ export default defineConfig(() => {
       },
     },
     assetsInclude: ["**/*.svg", "**/*.csv"],
-    // REMOVED: esbuild: { jsx: "automatic" }
-    server: {
-      proxy: {
-        "/api": {
-          target: "https://hymnize.com",
-          changeOrigin: true,
-          secure: true,
-        },
-      },
-    },
   };
 });
