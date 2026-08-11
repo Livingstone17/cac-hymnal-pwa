@@ -94,7 +94,7 @@ function AppShell() {
       {/* Phone frame: fills the device on mobile; centered phone mockup on desktop */}
       <div
         ref={frameRef}
-        className="relative w-full h-full max-w-[393px] flex flex-col bg-background overflow-hidden md:max-h-[852px] md:rounded-[44px] md:shadow-2xl"
+        className="relative w-full h-full flex flex-col bg-background overflow-hidden md:max-w-[393px] md:max-h-[852px] md:rounded-[44px] md:shadow-2xl"
         style={{
           fontFamily: "'Inter', sans-serif",
           paddingBottom: keyboardCompensation,
