@@ -78,11 +78,10 @@ export default function SettingsScreen() {
                 <span className="text-sm text-foreground">{label}</span>
 
                 <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                    settingsLang === val
-                      ? "border-primary bg-primary"
-                      : "border-muted-foreground/40"
-                  }`}
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${settingsLang === val
+                    ? "border-primary bg-primary"
+                    : "border-muted-foreground/40"
+                    }`}
                 >
                   {settingsLang === val && (
                     <div className="w-2 h-2 rounded-full bg-white" />
@@ -118,9 +117,9 @@ export default function SettingsScreen() {
                 <p className="text-sm font-semibold text-foreground">
                   {offlineReady
                     ? tr(
-                        "Offline hymns ready",
-                        "Àwọn orin ti ṣetan laini ayelujara"
-                      )
+                      "Offline hymns ready",
+                      "Àwọn orin ti ṣetan laini ayelujara"
+                    )
                     : tr("Download all hymns", "Ṣe igbasilẹ gbogbo orin")}
                 </p>
 
@@ -136,11 +135,10 @@ export default function SettingsScreen() {
             <button
               onClick={() => void handleDownloadAll()}
               disabled={!hymns.length || offlineDownload?.running}
-              className={`w-full py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 ${
-                offlineDownload?.running
-                  ? "bg-muted text-muted-foreground"
-                  : "bg-primary text-primary-foreground"
-              }`}
+              className={`w-full py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 ${offlineDownload?.running
+                ? "bg-muted text-muted-foreground"
+                : "bg-primary text-primary-foreground"
+                }`}
             >
               {offlineDownload?.running ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -152,13 +150,13 @@ export default function SettingsScreen() {
                 ? tr("Downloading…", "Ń ṣe igbasilẹ…")
                 : offlineReady
                   ? tr(
-                      "Refresh offline hymns",
-                      "Ṣe imudojuiwọn orin offline"
-                    )
+                    "Refresh offline hymns",
+                    "Ṣe imudojuiwọn orin offline"
+                  )
                   : tr(
-                      "Download hymns for offline use",
-                      "Ṣe igbasilẹ orin fun offline"
-                    )}
+                    "Download hymns for offline use",
+                    "Ṣe igbasilẹ orin fun offline"
+                  )}
             </button>
 
             {offlineDownload && (
@@ -167,11 +165,10 @@ export default function SettingsScreen() {
                   <div
                     className="h-full bg-primary transition-all"
                     style={{
-                      width: `${
-                        offlineDownload.total
-                          ? (offlineDownload.done / offlineDownload.total) * 100
-                          : 0
-                      }%`,
+                      width: `${offlineDownload.total
+                        ? (offlineDownload.done / offlineDownload.total) * 100
+                        : 0
+                        }%`,
                     }}
                   />
                 </div>
@@ -289,7 +286,6 @@ export default function SettingsScreen() {
           <div className="space-y-2.5">
             {[
               [tr("App Version", "Ẹya Ohun Èlò"), "1.0.0"],
-              [tr("Source", "Orísun"), "Hymnize API"],
               [tr("Denomination", "Ìjọ"), "CAC"],
               [
                 tr("Total Hymns", "Àpapọ̀ Orin"),
@@ -314,8 +310,8 @@ export default function SettingsScreen() {
 
             <p className="text-xs text-muted-foreground leading-relaxed pt-1 border-t border-border mt-1">
               {tr(
-                "A digital hymnal for CAC congregations worldwide, powered by Hymnize and optimized for offline PWA use.",
-                "Iwe orin ìjọsìn alailẹgbẹ fún àwọn ìjọ CAC káàkiri àgbáálá ayé, ti Hymnize ń ṣiṣẹ́ fún ati tí a ṣe fún offline PWA."
+                "A digital hymnal for CAC congregations worldwide,  optimized for offline PWA use.",
+                "Iwe orin ìjọsìn alailẹgbẹ fún àwọn ìjọ CAC káàkiri àgbáálá ayé, ti a seto lati sise lai ni data."
               )}
             </p>
           </div>
@@ -337,7 +333,7 @@ export default function SettingsScreen() {
           ©CAC ITEDO YIYANJU District. All rights reserved.
         </p>
         <p className="text-center text-[11px] text-muted-foreground pb-2">
-          Designed & Developed by Zaophos
+          Developed by Zaophos
         </p>
         {/* PWA Feedback & Support Links */}
         <div
