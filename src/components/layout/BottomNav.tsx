@@ -32,7 +32,10 @@ export default function BottomNav({
     ];
 
     return (
-        <div className="flex items-center justify-around px-1 py-2 border-t border-border bg-card flex-shrink-0">
+        <div
+            className="flex items-center justify-around px-1 pt-2 border-t border-border bg-card/90 backdrop-blur-xl flex-shrink-0 shadow-[0_-4px_16px_rgba(0,0,0,0.05)]"
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 8px)" }}
+        >
             {tabs.map(({ id, Icon, en, yo }) => {
                 const active = activeTab === id;
 

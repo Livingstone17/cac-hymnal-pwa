@@ -147,8 +147,6 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
-const HYMNIZE_ORIGIN = "https://hymnize.com";
-
 function figmaAssetResolver(): Plugin {
   return {
     name: "figma-asset-resolver",
@@ -258,9 +256,10 @@ export default defineConfig(() => {
           // ],
           runtimeCaching: [
             {
-              // Hardcode the URL string here instead of using the variable
+              // Match the app's actual requests: it fetches SAME-ORIGIN
+              // `/api/collections/...` (rewritten to hymnize.com by Vercel),
+              // so match on pathname regardless of origin.
               urlPattern: ({ url }) =>
-                url.origin === "https://hymnize.com" &&
                 url.pathname.startsWith("/api/collections/"),
               handler: "StaleWhileRevalidate",
               options: {

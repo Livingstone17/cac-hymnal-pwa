@@ -13,32 +13,7 @@ import {
 
 import type { HymnSummary, Language } from "../types/hymnal";
 import ResultGroup from "../components/shared/ResultGroup";
-
-// ── Props ─────────────────────────────────────────────────────────────────────
-
-interface SearchScreenProps {
-    // Data
-    hymns: HymnSummary[];
-    language: Language;
-    offlineReady: boolean;
-
-    // Search state (owned by parent, passed down)
-    searchQuery: string;
-    setSearchQuery: (q: string) => void;
-
-    recentSearches: string[];
-    setRecentSearches: React.Dispatch<React.SetStateAction<string[]>>;
-
-    // Result buckets (computed in parent via useMemo)
-    byNumber: HymnSummary[];
-    byTitle: HymnSummary[];
-    byCategory: HymnSummary[];
-    lyricsResults: HymnSummary[];
-    lyricsSearchLoading: boolean;
-
-    // Actions
-    onOpenHymn: (hymn: HymnSummary) => void;
-}
+import { useHymnal } from "../app/hymnalContext";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,21 +23,23 @@ function tr(language: Language, en: string, yo: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function SearchScreen({
-    hymns,
-    language,
-    offlineReady,
-    searchQuery,
-    setSearchQuery,
-    recentSearches,
-    setRecentSearches,
-    byNumber,
-    byTitle,
-    byCategory,
-    lyricsResults,
-    lyricsSearchLoading,
-    onOpenHymn,
-}: SearchScreenProps) {
+export default function SearchScreen() {
+    const {
+        hymns,
+        language,
+        offlineReady,
+        searchQuery,
+        setSearchQuery,
+        recentSearches,
+        setRecentSearches,
+        byNumber,
+        byTitle,
+        byCategory,
+        lyricsResults,
+        lyricsSearchLoading,
+        openHymn,
+    } = useHymnal();
+
     const t = (en: string, yo: string) => tr(language, en, yo);
 
     const hasSearchQuery = Boolean(searchQuery.trim());
@@ -100,12 +77,8 @@ export default function SearchScreen({
 
     return (
         <div className="flex flex-col h-full">
-            {/* ── Header + Search Input ── */}
-            <div className="px-4 pt-5 pb-3 flex-shrink-0">
-                <h2 className="text-lg font-bold text-foreground mb-3">
-                    {t("Search Hymns", "Ìwádìí Orin")}
-                </h2>
-
+            {/* ── Search Input ── */}
+            <div className="px-4 pt-3 pb-3 flex-shrink-0">
                 {/* Input */}
                 <div className="relative">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -230,7 +203,7 @@ export default function SearchScreen({
                                 hymns={byNumber}
                                 query={searchQuery}
                                 language={language}
-                                onOpen={onOpenHymn}
+                                onOpen={(h) => void openHymn(h, "search")}
                             />
                         )}
 
@@ -241,7 +214,7 @@ export default function SearchScreen({
                                 hymns={byTitle}
                                 query={searchQuery}
                                 language={language}
-                                onOpen={onOpenHymn}
+                                onOpen={(h) => void openHymn(h, "search")}
                             />
                         )}
 
@@ -252,7 +225,7 @@ export default function SearchScreen({
                                 hymns={byCategory}
                                 query={searchQuery}
                                 language={language}
-                                onOpen={onOpenHymn}
+                                onOpen={(h) => void openHymn(h, "search")}
                             />
                         )}
 
@@ -275,7 +248,7 @@ export default function SearchScreen({
                                 hymns={filteredLyricsResults}
                                 query={searchQuery}
                                 language={language}
-                                onOpen={onOpenHymn}
+                                onOpen={(h) => void openHymn(h, "search")}
                             />
                         )}
                     </div>

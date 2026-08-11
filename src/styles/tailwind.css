@@ -2,3 +2,15 @@
 @source '../**/*.{js,ts,jsx,tsx}';
 
 @import 'tw-animate-css';
+
+/* ── App shell: fit the device screen, no page-level scrolling ── */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overscroll-behavior: none;
+  background: #1a237e;
+}
