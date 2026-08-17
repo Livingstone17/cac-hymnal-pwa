@@ -893,7 +893,9 @@ import type {
 const DATA_BASE = (
   import.meta.env.VITE_HYMNAL_DATA_BASE ||
   "https://cdn.jsdelivr.net/gh/livingstone17/cac-hymnal-api@main/data"
-).replace(/\/$/, "");
+)
+  .trim()
+  .replace(/\/+$/, "");
 
 const DATASET_MANIFEST_CACHE_KEY = `${CACHE_PREFIX}:dataset-manifest:v1`;
 
