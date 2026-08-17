@@ -1001,6 +1001,8 @@ interface CachedManifest {
 interface HymnCacheValue extends CachedValue<Hymn> {
   stale?: boolean;
   contentHash?: string;
+  /** Dataset version this hymn was fetched under (manifest datasetHash ?? updatedAt). */
+  datasetVersion?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1633,10 +1635,20 @@ export async function getHymnCached(
   const remoteHash = manifest?.files?.[hymnManifestKey];
 
   /**
+   * The dataset version (manifest datasetHash, falling back to updatedAt)
+   * lets us detect when the backend has regenerated the hymns, so edited
+   * lyrics reach installed users instead of serving cached copies forever.
+   */
+  const datasetVersion = manifest?.datasetHash ?? manifest?.updatedAt ?? null;
+
+  /**
    * Cached hymn is valid when:
    *
    * - caller didn't request a forced refresh
    * - cached hymn isn't marked stale
+   * - the cached hymn was fetched under the current dataset version
+   *   (when a version is known; a cache entry without a version is treated
+   *   as stale so existing users re-sync after this update)
    * - and either:
    *     a) manifest doesn't have per-file hashes yet, or
    *     b) cached hash matches remote hash
@@ -1645,6 +1657,7 @@ export async function getHymnCached(
     cached &&
     !options?.forceRefresh &&
     !cached.stale &&
+    (!datasetVersion || cached.datasetVersion === datasetVersion) &&
     (!remoteHash || !cached.contentHash || cached.contentHash === remoteHash);
 
   if (cacheIsValid) {
@@ -1666,6 +1679,8 @@ export async function getHymnCached(
       stale: false,
 
       contentHash: remoteHash,
+
+      datasetVersion,
     });
 
     /**

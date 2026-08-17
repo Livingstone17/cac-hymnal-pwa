@@ -260,14 +260,23 @@ export default defineConfig(() => {
               // Match the app's actual data requests: jsDelivr in production
               // (configured via VITE_HYMNAL_DATA_BASE) or a same-origin
               // `/data/...` path when the env var is absent.
+              //
+              // NetworkFirst (not StaleWhileRevalidate) so edited hymn data
+              // reaches installed users immediately instead of serving stale
+              // cached lyrics while the background revalidation lags. The app
+              // keeps its own per-hymn IndexedDB cache, so this cache is just
+              // the offline fallback.
               urlPattern: ({ url }) =>
                 url.hostname.includes("jsdelivr") ||
                 url.pathname.startsWith("/data/"),
-              handler: "StaleWhileRevalidate",
+              handler: "NetworkFirst",
               options: {
                 cacheName: "hymnal-data-v1",
+                networkTimeoutSeconds: 5,
                 expiration: {
-                  maxEntries: 20,
+                  // Large enough for the manifest + catalog indexes + every
+                  // hymn (1050) without LRU eviction churn.
+                  maxEntries: 2000,
                   maxAgeSeconds: 60 * 60 * 24 * 365,
                 },
                 cacheableResponse: {

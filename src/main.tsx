@@ -23,4 +23,40 @@ window.addEventListener("appinstalled", () => {
   window.__deferredInstallPrompt = null;
 });
 // ----------------------------------
+
+// --- PWA AUTO-UPDATE: force installed apps onto the newest bundle ---
+// The service worker is configured with skipWaiting + clientsClaim, so a new
+// SW installs and takes control automatically. But the page that is already
+// open keeps running the OLD JavaScript bundle until it is reloaded — which
+// is exactly why installed users kept seeing old lyrics after a deploy.
+//
+// When the controlling service worker changes, reload the page (deferred
+// until the app is visible again if it is currently in the background) so
+// the latest app code + hymn data are used. The very first activation (fresh
+// install, no previous SW) is not an update and is ignored.
+if ("serviceWorker" in navigator) {
+  const wasControlled = navigator.serviceWorker.controller !== null;
+
+  const reloadForUpdate = () => {
+    if (document.visibilityState === "visible") {
+      window.location.reload();
+    } else {
+      document.addEventListener(
+        "visibilitychange",
+        () => {
+          if (document.visibilityState === "visible") {
+            window.location.reload();
+          }
+        },
+        { once: true }
+      );
+    }
+  };
+
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!wasControlled) return;
+    reloadForUpdate();
+  });
+}
+// ----------------------------------
 createRoot(document.getElementById("root")!).render(<App />);
