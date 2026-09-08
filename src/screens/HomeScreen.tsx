@@ -36,8 +36,8 @@ export default function HomeScreen() {
           <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" />
           <p className="text-sm text-muted-foreground">
             {tr(
-              "Fetching CAC hymnal from Hymnize…",
-              "Ń gba iwe orin CAC láti Hymnize…"
+              "Fetching your hymns for you...",
+              "Ń gba iwe orin re wa fun o…"
             )}
           </p>
         </div>
